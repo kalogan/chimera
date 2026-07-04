@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { seedToken, type CreatureToken, type Family } from '../creature/index.js';
+import { type CreatureToken, type Family } from '../creature/index.js';
 import { dexCount } from '../roster/index.js';
 import {
   createRival,

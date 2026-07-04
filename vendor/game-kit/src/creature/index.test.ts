@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   creatureFromToken,
   seedToken,
+  gooberSpecFor,
+  gooberSpecForSeed,
   gooberFromToken,
   cryFromToken,
   FAMILIES,
@@ -14,6 +16,35 @@ import {
 function tok(id: string, family: Family, plus = 0, generation = 0): CreatureToken {
   return { id, family, plus, generation, parents: null };
 }
+
+describe('gooberSpecFor — memoized stable body', () => {
+  it('returns the SAME reference for the same token id (memo holds)', () => {
+    const t = tok('memo-beast', 'beast', 2, 1);
+    const a = gooberSpecFor(t);
+    const b = gooberSpecFor({ ...t });
+    expect(a).toBe(b); // reference-equal — this is what keeps mesh memos from rebuilding
+  });
+
+  it('matches the spec creatureFromToken would produce', () => {
+    for (const family of FAMILIES) {
+      const t = seedToken(`spec-${family}`);
+      expect(gooberSpecFor(t)).toStrictEqual(creatureFromToken(t).gooberSpec);
+    }
+  });
+
+  it('ignores plus/generation (they never restyle the body)', () => {
+    const base = gooberSpecFor(tok('same-id', 'dragon', 0, 0));
+    // Same id, bumped plus/generation → same cached body reference.
+    expect(gooberSpecFor(tok('same-id', 'dragon', 9, 3))).toBe(base);
+  });
+
+  it('gooberSpecForSeed is stable and equals the seed token body', () => {
+    const a = gooberSpecForSeed('villager-tamsin');
+    const b = gooberSpecForSeed('villager-tamsin');
+    expect(a).toBe(b);
+    expect(a).toStrictEqual(creatureFromToken(seedToken('villager-tamsin')).gooberSpec);
+  });
+});
 
 describe('creatureFromToken — determinism', () => {
   it('is deterministic: same token → deep-equal creature', () => {

@@ -7,7 +7,7 @@ import { createTouchState, type TouchPointerEvent } from './index.js';
 
 const SCREEN_WIDTH = 800; // splitX defaults to 400
 
-function down(id: number, x: number, y: number, nowMs = 0): TouchPointerEvent {
+function down(id: number, x: number, y: number): TouchPointerEvent {
   return { id, x, y, type: 'down' };
 }
 function move(id: number, x: number, y: number): TouchPointerEvent {

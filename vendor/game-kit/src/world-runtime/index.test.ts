@@ -63,10 +63,6 @@ function withRoamers(roamers: RoamerSeed[]): ZoneDescriptor {
   return roomDescriptor({ roamers });
 }
 
-function eventTypes(events: ZoneEvent[]): string[] {
-  return events.map((e) => e.type);
-}
-
 // ── createZone ───────────────────────────────────────────────────────────────
 
 describe('createZone', () => {

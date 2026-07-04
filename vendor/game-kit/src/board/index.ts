@@ -65,7 +65,7 @@ export interface Board {
 }
 
 /** Flat row-major index for a (row, col) pair against a fixed column count. */
-function indexOf(rows: number, cols: number, row: number, col: number): number {
+function indexOf(_rows: number, cols: number, row: number, col: number): number {
   return row * cols + col;
 }
 

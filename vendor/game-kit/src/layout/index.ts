@@ -175,10 +175,6 @@ function rectContains(r: Rect, x: number, z: number, eps = 1e-6): boolean {
   return x >= r.x - eps && x <= r.x + r.w + eps && z >= r.z - eps && z <= r.z + r.d + eps;
 }
 
-function rectsOverlap(a: Rect, b: Rect): boolean {
-  return a.x < b.x + b.w && a.x + a.w > b.x && a.z < b.z + b.d && a.z + a.d > b.z;
-}
-
 /** Intersection of two rects, or null if they don't overlap (touching is not overlap). */
 function rectIntersect(a: Rect, b: Rect): Rect | null {
   const x0 = Math.max(a.x, b.x);

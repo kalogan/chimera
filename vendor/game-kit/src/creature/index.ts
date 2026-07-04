@@ -13,7 +13,7 @@
 import { createRng, hashStringToSeed, type Rng } from '../prng/index.js';
 import { createIdentity } from '../identity/index.js';
 import { nameFromToken } from '../naming/index.js';
-import { gooberFromToken } from './goober.js';
+import { gooberFromToken, type GooberSpec } from './goober.js';
 import { cryFromToken } from './cry.js';
 import {
   type Creature,
@@ -232,4 +232,33 @@ export function creatureFromToken(token: CreatureToken): Creature {
   const name = nameFromToken(token.id, family);
 
   return { token, name, family, rank, size, elements, stats, skills, gooberSpec, crySpec };
+}
+
+// ── memoized body accessor (render-perf) ─────────────────────────────────────
+// A goober's body is a pure function of its token's IMMUTABLE identity: id +
+// family + an id-seeded size. `plus`/`generation` scale stats and rank but NEVER
+// restyle the body, so a spec is safe to build once per token id and reuse for
+// the life of the process.
+//
+// WHY IT MATTERS: consumers that render many goobers per frame (a walkable
+// overworld, a party lineup) mesh-memoize on the GooberSpec *reference*. Deriving
+// the spec inline in render (`creatureFromToken(token).gooberSpec`) mints a fresh
+// object every frame, busting that memo and rebuilding the metaball field solve
+// each step — the classic mobile "laggy while walking" symptom. `gooberSpecFor`
+// hands back a STABLE reference so the mesh builds once and merely animates after.
+const _gooberSpecById = new Map<string, GooberSpec>();
+
+/** The stable, memoized `GooberSpec` for a creature token — built once per id. */
+export function gooberSpecFor(token: CreatureToken): GooberSpec {
+  const hit = _gooberSpecById.get(token.id);
+  if (hit) return hit;
+  const spec = creatureFromToken(token).gooberSpec;
+  _gooberSpecById.set(token.id, spec);
+  return spec;
+}
+
+/** The stable, memoized `GooberSpec` for a string-seeded body (ambient/NPC
+ *  goobers built from a seed rather than a roster token — e.g. town villagers). */
+export function gooberSpecForSeed(seed: string): GooberSpec {
+  return gooberSpecFor(seedToken(seed));
 }

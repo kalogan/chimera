@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { createAtlas, gridAtlas } from './index.js';
 
 // A stub image + a fake ctx that records drawImage calls.
