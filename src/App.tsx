@@ -9,6 +9,7 @@ import { audio, resumeAudio } from "./audio.js";
 import { playBattleEvents } from "./battle-audio.js";
 import { Splash } from "./shell/splash.js";
 import { PauseOverlay } from "./shell/pause.js";
+import { SettingsPanel } from "./shell/settings.js";
 import { HudBar } from "./shell/hud.js";
 import { itemDef, shopFor, SELL_FRACTION } from "game-kit/economy";
 import { ZONE_LABELS } from "./zone.js";
@@ -65,6 +66,10 @@ export function App() {
   const [game, setGame] = useState<GameState>(() => newGame());
   const [shellPhase, setShellPhase] = useState<ShellPhase>("splash");
   const [paused, setPaused] = useState(false);
+  // A direct HUD-gear → Settings path, independent of Pause (Pause still has
+  // its own Settings entry too — both are fine, this is just a shorter route
+  // the Director asked for since Settings used to be buried two taps deep).
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const resumedRef = useRef(false);
   // A save the player hasn't yet chosen to load/dismiss this session. Splash
   // (shell/splash.tsx) is NOT ours to edit and always starts a fresh game —
@@ -82,20 +87,25 @@ export function App() {
     }
   };
 
+  // The HUD gear (⚙) route to Settings — a direct one-tap entry, in addition to
+  // the pause→Settings path.
+  const openSettings = () => setSettingsOpen(true);
+
   // Esc opens/closes the pause overlay while playing (not on the splash, which
   // has no pause concept, and not while a settings/pause panel already governs
-  // Esc itself — PauseOverlay stops propagation on its own Esc handler).
+  // Esc itself — PauseOverlay stops propagation on its own Esc handler, and
+  // SettingsPanel does the same for the HUD-gear path below).
   useEffect(() => {
     if (shellPhase !== "playing") return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || paused) return;
+      if (e.key !== "Escape" || paused || settingsOpen) return;
       e.preventDefault();
       audio().playUi("select");
       setPaused(true);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [shellPhase, paused]);
+  }, [shellPhase, paused, settingsOpen]);
 
   if (shellPhase === "splash") {
     return (
@@ -129,18 +139,19 @@ export function App() {
           game={game}
           setGame={setGame}
           onPause={() => setPaused(true)}
+          onSettings={openSettings}
           canContinue={canContinue}
           onContinue={doContinue}
           onDismissContinue={dismissSaveOffer}
         />
       )}
-      {game.screen === "zone" && <ZoneScreen game={game} setGame={setGame} onPause={() => setPaused(true)} paused={paused} />}
-      {game.screen === "battle" && <BattleScreen game={game} setGame={setGame} onPause={() => setPaused(true)} />}
+      {game.screen === "zone" && <ZoneScreen game={game} setGame={setGame} onPause={() => setPaused(true)} onSettings={openSettings} paused={paused} />}
+      {game.screen === "battle" && <BattleScreen game={game} setGame={setGame} onPause={() => setPaused(true)} onSettings={openSettings} />}
       {game.screen === "cradle" && <CradleScreen game={game} setGame={setGame} />}
       {game.screen === "shop" && <ShopScreen game={game} setGame={setGame} />}
       {game.screen === "dex" && <DexScreen game={game} onBack={() => setGame(backToParty(game))} />}
       {game.screen === "newborn" && <NewbornScreen game={game} setGame={setGame} />}
-      {game.screen === "town" && <TownScreen game={game} setGame={setGame} onPause={() => setPaused(true)} paused={paused} />}
+      {game.screen === "town" && <TownScreen game={game} setGame={setGame} onPause={() => setPaused(true)} onSettings={openSettings} paused={paused} />}
       {game.screen === "trade" && (
         <TradeScreen game={game} setGame={setGame} onBack={() => setGame({ ...game, screen: "town" })} />
       )}
@@ -154,6 +165,16 @@ export function App() {
           }}
         />
       )}
+      {settingsOpen && (
+        <div
+          style={{ position: "fixed", inset: 0, background: "rgba(20,16,10,0.55)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "24px 12px", zIndex: 60, overflowY: "auto" }}
+          onClick={() => setSettingsOpen(false)}
+        >
+          <div onClick={(e) => e.stopPropagation()}>
+            <SettingsPanel onClose={() => setSettingsOpen(false)} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -165,11 +186,13 @@ function PartyScreen({
   game,
   setGame,
   onPause,
+  onSettings,
   canContinue,
   onContinue,
   onDismissContinue,
 }: ScreenProps & {
   onPause: () => void;
+  onSettings: () => void;
   canContinue?: boolean;
   onContinue?: () => void;
   onDismissContinue?: () => void;
@@ -201,7 +224,7 @@ function PartyScreen({
           subtitle="Aldercradle is fading — scout, bond, and breed new life."
           dexText={`◈ ${game.economy.gold} · Dex ${dexTotal(game)} · Party ${game.roster.party.length}/3 · Box ${game.roster.storage.length}`}
           party={party}
-          onPause={onPause}
+          onPause={onPause} onSettings={onSettings}
         />
         <div className="actionbar">
           {canContinue && (
@@ -296,7 +319,7 @@ const KEY_DIR: Record<string, Dir> = {
   ArrowRight: "right", KeyD: "right",
 };
 
-function ZoneScreen({ game, setGame, onPause, paused }: ScreenProps & { onPause: () => void; paused: boolean }) {
+function ZoneScreen({ game, setGame, onPause, onSettings, paused }: ScreenProps & { onPause: () => void; onSettings: () => void; paused: boolean }) {
   const zone = game.zone;
   const zoneId = zone?.descriptor.id ?? "meadowmere";
   const playerSpec = useMemo(() => partyCreatures(game)[0]?.gooberSpec, [game]);
@@ -372,7 +395,7 @@ function ZoneScreen({ game, setGame, onPause, paused }: ScreenProps & { onPause:
           title={ZONE_LABELS[zoneId] ?? zoneId}
           subtitle="Wild goobers roam, and a rival or two are about — walk into one to meet it."
           dexText={`Dex ${dexTotal(game)} · Party ${game.roster.party.length}/3`}
-          onPause={onPause}
+          onPause={onPause} onSettings={onSettings}
         />
         <div className="hint" style={{ position: "absolute", bottom: 116, left: 0, right: 0, textAlign: "center" }}>
           ↑↓←→ / WASD to walk · reach a golden ring to travel onward
@@ -396,7 +419,7 @@ const TOWN_KEY_DIR: Record<string, TownDirection> = {
   ArrowRight: "right", KeyD: "right",
 };
 
-function TownScreen({ game, setGame, onPause, paused }: ScreenProps & { onPause: () => void; paused: boolean }) {
+function TownScreen({ game, setGame, onPause, onSettings, paused }: ScreenProps & { onPause: () => void; onSettings: () => void; paused: boolean }) {
   const [nearId, setNearId] = useState<string | null>(null);
   const [dialogueVillagerId, setDialogueVillagerId] = useState<string | null>(null);
   const lastStep = useRef(0);
@@ -467,7 +490,7 @@ function TownScreen({ game, setGame, onPause, paused }: ScreenProps & { onPause:
           title="CHIMERA · The Town"
           subtitle="Walk up to a villager and press E to talk."
           dexText={`◈ ${game.economy.gold} · Dex ${dexTotal(game)} · Party ${game.roster.party.length}/3`}
-          onPause={onPause}
+          onPause={onPause} onSettings={onSettings}
         />
         <QuestLog game={game} />
         {!dialogueVillagerId && (
@@ -544,7 +567,7 @@ function CombatantCard({ c, active }: { c: Combatant; active: boolean }) {
   );
 }
 
-function BattleScreen({ game, setGame, onPause }: ScreenProps & { onPause: () => void }) {
+function BattleScreen({ game, setGame, onPause, onSettings }: ScreenProps & { onPause: () => void; onSettings: () => void }) {
   const b = game.battle;
   if (!b) return null;
   const actor = activeActor(b);
@@ -578,7 +601,7 @@ function BattleScreen({ game, setGame, onPause }: ScreenProps & { onPause: () =>
           title={rival ? `Rival battle · ${rival.rival.name}` : "Encounter"}
           subtitle={rival ? `${rival.rival.name} challenges you with the team their journey has built.` : undefined}
           dexText={game.outcome ? game.outcome.toUpperCase() : b.phase}
-          onPause={onPause}
+          onPause={onPause} onSettings={onSettings}
         />
         <div className="cards enemy">
           {b.enemyTeam.map((c) => <CombatantCard key={c.id} c={c} active={actor?.id === c.id} />)}

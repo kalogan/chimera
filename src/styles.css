@@ -13,7 +13,7 @@
   font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
 }
 * { box-sizing: border-box; }
-html, body, #root { margin: 0; height: 100%; width: 100%; background: var(--sky); color: var(--ink); }
+html, body, #root { margin: 0; height: 100%; width: 100%; background: var(--sky); color: var(--ink); overflow-x: hidden; }
 .stage { position: fixed; inset: 0; }
 .overlay { position: fixed; inset: 0; pointer-events: none; }
 .overlay > * { pointer-events: auto; }
@@ -32,7 +32,14 @@ html, body, #root { margin: 0; height: 100%; width: 100%; background: var(--sky)
 .actionbar {
   position: absolute; left: 0; right: 0; bottom: 0;
   display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;
-  padding: 14px; background: linear-gradient(transparent, var(--panel));
+  padding: 14px 14px calc(14px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(transparent, var(--panel));
+  max-width: 100vw; box-sizing: border-box;
+}
+
+@media (max-width: 560px) {
+  .actionbar { gap: 8px; padding: 10px 8px calc(10px + env(safe-area-inset-bottom, 0px)); }
+  button.act { padding: 9px 14px; font-size: 13px; }
 }
 button.act {
   min-width: 44px; min-height: 44px; padding: 10px 18px;
@@ -53,6 +60,14 @@ button.act.bond { border-color: var(--bond); }
 .card {
   background: var(--panel); border-radius: 10px; padding: 6px 10px; min-width: 132px;
   box-shadow: var(--shadow); font-size: 12px;
+}
+
+@media (max-width: 560px) {
+  .cards { max-width: 100vw; }
+  .cards.enemy { top: 48px; right: 4px; }
+  .cards.player { bottom: 78px; left: 4px; }
+  .card { min-width: 108px; padding: 5px 8px; font-size: 11px; }
+  .log { max-width: 58vw; left: 4px; bottom: 128px; font-size: 11px; }
 }
 .card.fainted { opacity: 0.45; filter: grayscale(0.7); }
 .card .nm { font-weight: 700; display: flex; justify-content: space-between; }
@@ -82,9 +97,11 @@ button.act.bond { border-color: var(--bond); }
 .pick { outline: 3px solid var(--warm); border-radius: 12px; }
 .hint { font-size: 13px; opacity: 0.75; margin-top: 6px; }
 
-/* Overworld touch d-pad (Meadowmere) — bottom-right cluster, thumb-reachable */
+/* Overworld touch d-pad (Meadowmere/Town) — bottom-right cluster, thumb-reachable.
+   Bottom offset clears the phone's gesture bar via safe-area-inset-bottom. */
 .dpad {
-  position: absolute; right: 22px; bottom: 26px;
+  position: absolute; right: 22px;
+  bottom: calc(26px + env(safe-area-inset-bottom, 0px));
   width: 150px; height: 150px;
 }
 .dpad .pad {
@@ -99,9 +116,37 @@ button.act.bond { border-color: var(--bond); }
 .dpad .left  { left: 0; top: 50px; }
 .dpad .right { right: 0; top: 50px; }
 
+/* The interact affordance ("Talk (E)" in Town, INTERACT in Zone) lives in its
+   own bottom-LEFT cluster so it never collides with the d-pad's bottom-right
+   footprint — both thumb-reachable, neither overlapping the other or the
+   walking hint. */
+.interact-btn {
+  position: absolute; left: 16px;
+  bottom: calc(26px + env(safe-area-inset-bottom, 0px));
+  min-width: 84px; min-height: 56px; font-size: 16px;
+  z-index: 2;
+}
+
+/* Desktop-only walking hint — narrow phones hide this (see media query below)
+   since the d-pad + interact button already make the controls obvious, and
+   the hint text used to sit in the same band the controls now occupy. */
+.walk-hint { position: absolute; left: 0; right: 0; bottom: 116px; text-align: center; }
+
+@media (max-width: 560px) {
+  .walk-hint { display: none; }
+  .dpad { right: 14px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); width: 138px; height: 138px; }
+  .dpad .pad { width: 46px; height: 46px; }
+  .dpad .up    { left: 46px; }
+  .dpad .down  { left: 46px; }
+  .dpad .right { right: 0; top: 46px; }
+  .dpad .left  { left: 0; top: 46px; }
+  .interact-btn { left: 12px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
+}
+
 /* ── Shell: HUD top bar ─────────────────────────────────────────────────────── */
 .hud-top { position: absolute; top: 0; left: 0; right: 0; }
-.hud-right { display: flex; align-items: center; gap: 8px; }
+.hud-titles { min-width: 0; }
+.hud-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .hud-pause {
   min-width: 40px; min-height: 40px; padding: 6px 10px; font-size: 17px; line-height: 1;
   background: var(--panel); border: 2px solid var(--warm-deep); border-radius: 10px;
@@ -118,6 +163,18 @@ button.act.bond { border-color: var(--bond); }
 }
 .hud-party-name { font-weight: 700; }
 .hud-party-rank { color: var(--warm-deep); font-weight: 800; }
+
+/* Narrow phones (portrait): keep the top bar tidy — drop the long subtitle,
+   shrink the title, and let the stats pill wrap under the title rather than
+   fight the button cluster for width. Buttons stay full-size (≥40px tap). */
+@media (max-width: 560px) {
+  .banner { padding: 8px 10px; flex-wrap: wrap; gap: 6px; }
+  .hud-titles .subtitle { display: none; }
+  .hud-titles .title { font-size: 14px; letter-spacing: 0.04em; }
+  .hud-right { gap: 6px; }
+  .dex { font-size: 11px; padding: 4px 9px; max-width: 46vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hud-party-strip { padding: 0 10px 6px; }
+}
 
 /* ── Shell: splash screen ───────────────────────────────────────────────────── */
 .splash-wrap { position: fixed; inset: 0; transition: opacity 240ms ease; }
@@ -139,6 +196,15 @@ button.act.bond { border-color: var(--bond); }
 .settings-panel {
   position: relative; width: min(420px, 90vw); max-height: 82vh; overflow-y: auto;
   padding: 18px 20px; text-align: left;
+}
+
+/* Backdrop for the HUD-gear-opened Settings overlay — same dim scrim/centering
+   as PauseOverlay's `.pause-dock` (that one is owned by shell/pause.tsx; this
+   is the App.tsx-level standalone path so Settings is reachable without
+   detouring through Pause). */
+.settings-dock {
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(43, 36, 64, 0.42); pointer-events: auto; z-index: 50;
 }
 .settings-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .settings-head h2 { margin: 0; }
@@ -190,6 +256,11 @@ button.act.bond { border-color: var(--bond); }
 .shop-name small { opacity: 0.6; font-weight: 600; }
 .shop-buy { display: flex; gap: 6px; flex: none; }
 
+@media (max-width: 560px) {
+  .shop-row { flex-wrap: wrap; padding: 8px 10px; }
+  .shop-buy { width: 100%; justify-content: flex-end; }
+}
+
 /* ── The Dex (creature compendium) ─────────────────────────────────────────── */
 .dex-screen { background: var(--sky); overflow: hidden; }
 .dex-grid {
@@ -219,6 +290,11 @@ button.act.bond { border-color: var(--bond); }
 .dex-badge-scouted { background: var(--sky); color: var(--ink); }
 .dex-badge-owned { background: var(--bond); color: #fff; }
 .dex-badge-bred { background: var(--warm); color: #4a2f0e; }
+
+@media (max-width: 560px) {
+  .dex-grid { top: 78px; bottom: 76px; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+  .dex-card { padding: 8px; }
+}
 
 /* ── Rival brain inspector (?rivals) ── */
 .inspector { position: fixed; inset: 0; overflow-y: auto; background: #1a1720; color: #e8e2d6;
