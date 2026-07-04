@@ -11,6 +11,7 @@
       "game-kit": ["./vendor/game-kit/src/index.ts"],
       "game-kit/r3f": ["./vendor/game-kit/src/r3f.ts"],
       "game-kit/*/r3f": ["./vendor/game-kit/src/*/r3f.tsx"],
+      "game-kit/rival/brain": ["./vendor/game-kit/src/rival/brain.ts"],
       "game-kit/*": ["./vendor/game-kit/src/*/index.ts"]
     }
   },

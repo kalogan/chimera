@@ -16,6 +16,8 @@ export default defineConfig({
       // module's r3f helper WITHOUT pulling the whole r3f barrel (which would drag in
       // modules with optional peer deps this game doesn't have). Must precede the glob.
       { find: /^game-kit\/(.*)\/r3f$/, replacement: kit("./vendor/game-kit/src/$1/r3f.tsx") },
+      // rival/brain is a sibling file (not dir/index) — the swappable-brain API.
+      { find: /^game-kit\/rival\/brain$/, replacement: kit("./vendor/game-kit/src/rival/brain.ts") },
       { find: /^game-kit\/r3f$/, replacement: kit("./vendor/game-kit/src/r3f.ts") },
       { find: /^game-kit\/(.*)$/, replacement: kit("./vendor/game-kit/src/$1/index.ts") },
       { find: /^game-kit$/, replacement: kit("./vendor/game-kit/src/index.ts") },
