@@ -30,8 +30,11 @@ import {
   TOWN_VILLAGERS,
   TOWN_PORTALS,
   TOWN_HOME_TILE,
+  TOWN_TREE_TILE,
+  TOWN_DORMANT_PADS,
   type TownDirection,
   type TownPortal,
+  type TownDormantPad,
   type TownVillager,
 } from "./town.js";
 import "./town.css";
@@ -160,7 +163,9 @@ function FollowCam({ target }: { target: React.MutableRefObject<THREE.Vector3> }
   return null;
 }
 
-/** Static tile geometry: plaza walls + the paved fountain ring + the ground. */
+/** Static tile geometry: plaza walls + the paved ring + the ground (the
+ *  Aldercradle tree itself is rendered separately by `<AldercradleTree>`,
+ *  keeping the world-tree's own bloom-stage logic out of the terrain mesh). */
 function TownTerrain() {
   const w = TOWN_WIDTH;
   const h = TOWN_HEIGHT;
@@ -203,16 +208,110 @@ function TownTerrain() {
         <meshToonMaterial map={groundTex} color={TOWN_PLAZA_FLOOR} />
       </mesh>
       {cells}
-      {/* A little fountain at the plaza's heart. */}
-      <mesh position={[...worldOf(6, 5, w, h)] as [number, number, number]}>
-        <cylinderGeometry args={[0.55, 0.65, 0.5, 16]} />
-        <meshToonMaterial color="#cdb27a" />
-      </mesh>
-      <mesh position={[worldOf(6, 5, w, h)[0], 0.55, worldOf(6, 5, w, h)[2]]}>
-        <sphereGeometry args={[0.22, 12, 12]} />
-        <meshBasicMaterial color="#bfe0ee" transparent opacity={0.85} />
-      </mesh>
     </>
+  );
+}
+
+// ── the Aldercradle (the world-tree, plaza center — replaces the old fountain) ──
+//
+// A withered, bare sapling at 0/8 Heartseeds grows fuller/greener/more
+// luminous toward a whole, glowing, blossoming tree at 8/8 — all via cheap,
+// STATIC procedural geometry (a trunk cylinder + a small fixed cluster of
+// canopy spheres) whose per-stage color/scale/opacity + a soft point light
+// are derived once via useMemo keyed on `healedCount` (0..8) — NOT rebuilt
+// per frame, and no shaders: this only touches material props + transforms,
+// exactly the kind of "cheap" the mobile-first brief asks for.
+const TREE_WITHERED = "#8a7a5a"; // bare/dry — 0 seeds
+const TREE_BUDDING = "#9db56a"; // first green — a few seeds
+const TREE_LUSH = "#5fae5a"; // full canopy green — most seeds
+const TREE_BLOOM = "#e7c86a"; // golden bloom accent — 8/8 whole
+
+function lerpColor(a: string, b: string, t: number): string {
+  const pa = parseInt(a.slice(1), 16);
+  const pb = parseInt(b.slice(1), 16);
+  const ar = (pa >> 16) & 255, ag = (pa >> 8) & 255, ab = pa & 255;
+  const br = (pb >> 16) & 255, bg = (pb >> 8) & 255, bb = pb & 255;
+  const r = Math.round(ar + (br - ar) * t);
+  const g = Math.round(ag + (bg - ag) * t);
+  const bch = Math.round(ab + (bb - ab) * t);
+  return `#${((1 << 24) + (r << 16) + (g << 8) + bch).toString(16).slice(1)}`;
+}
+
+interface TreeStage {
+  canopyColor: string;
+  trunkColor: string;
+  canopyScale: number;
+  canopyOpacity: number;
+  glowOpacity: number;
+  glowColor: string;
+  lightIntensity: number;
+}
+
+/** The tree's whole visual state for a given healed count (0..8) — pure, so
+ *  it's cheap to recompute only when `healedCount` actually changes. */
+function stageFor(healed: number): TreeStage {
+  const t = Math.max(0, Math.min(8, healed)) / 8;
+  // Bare -> budding over the first half, budding -> lush -> bloom over the second.
+  const canopyColor =
+    t < 0.5 ? lerpColor(TREE_WITHERED, TREE_BUDDING, t / 0.5) : lerpColor(TREE_LUSH, TREE_BLOOM, (t - 0.5) / 0.5);
+  const trunkColor = lerpColor("#6b5638", "#8a6a3f", t);
+  return {
+    canopyColor,
+    trunkColor,
+    canopyScale: 0.55 + t * 0.65, // bare little sapling -> a full, wide canopy
+    canopyOpacity: 0.55 + t * 0.45,
+    glowOpacity: t * 0.5,
+    glowColor: TREE_BLOOM,
+    lightIntensity: t * 1.4,
+  };
+}
+
+/** A fixed cluster of canopy-ball offsets (never regenerated) — only their
+ *  material color/opacity/scale change with bloom stage. */
+const CANOPY_BALLS: Array<[number, number, number, number]> = [
+  [0, 0, 0, 1.0],
+  [0.5, 0.18, 0.3, 0.72],
+  [-0.5, 0.12, -0.25, 0.7],
+  [0.15, 0.42, -0.4, 0.6],
+  [-0.3, 0.38, 0.35, 0.62],
+  [0, -0.15, 0.5, 0.58],
+];
+
+function AldercradleTree({ w, h, healedCount }: { w: number; h: number; healedCount: number }) {
+  const [wx, , wz] = worldOf(TOWN_TREE_TILE[0], TOWN_TREE_TILE[1], w, h);
+  const stage = useMemo(() => stageFor(healedCount), [healedCount]);
+  const canopyY = 1.15;
+  return (
+    <group position={[wx, 0, wz]}>
+      {/* A little root-mound where the fountain's base used to sit. */}
+      <mesh position={[0, 0.08, 0]}>
+        <cylinderGeometry args={[0.62, 0.72, 0.16, 16]} />
+        <meshToonMaterial color="#a9946a" />
+      </mesh>
+      {/* Trunk. */}
+      <mesh position={[0, 0.65, 0]}>
+        <cylinderGeometry args={[0.16, 0.24, 1.1, 10]} />
+        <meshToonMaterial color={stage.trunkColor} />
+      </mesh>
+      {/* Canopy — a fixed cluster of soft balls that grow/green/brighten with
+          the Heartseed count (never rebuilt, only re-tinted/re-scaled). */}
+      {CANOPY_BALLS.map(([ox, oy, oz, baseR], i) => (
+        <mesh key={i} position={[ox * stage.canopyScale, canopyY + oy * stage.canopyScale, oz * stage.canopyScale]}>
+          <sphereGeometry args={[baseR * stage.canopyScale * 0.62, 10, 10]} />
+          <meshToonMaterial color={stage.canopyColor} transparent opacity={stage.canopyOpacity} />
+        </mesh>
+      ))}
+      {/* A soft golden glow disc at the base once the tree starts blooming. */}
+      {stage.glowOpacity > 0 && (
+        <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+          <circleGeometry args={[1.3, 24]} />
+          <meshBasicMaterial color={stage.glowColor} transparent opacity={stage.glowOpacity} depthWrite={false} />
+        </mesh>
+      )}
+      {stage.lightIntensity > 0 && (
+        <pointLight position={[0, 1.6, 0]} color={stage.glowColor} intensity={stage.lightIntensity} distance={6} decay={2} />
+      )}
+    </group>
   );
 }
 
@@ -239,6 +338,28 @@ function PortalPad({ tile, w, h }: { tile: [number, number]; w: number; h: numbe
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.04, 0]}>
         <circleGeometry args={[0.7, 24]} />
         <meshBasicMaterial color="#f4e3c4" transparent opacity={0.55} />
+      </mesh>
+    </group>
+  );
+}
+
+/** A DORMANT future-world pad (one of the 5 not-yet-built worlds — bird/
+ *  slime/nature/golem/spirit). Deliberately the visual OPPOSITE of a live
+ *  `PortalPad`: dimmed/desaturated stone, no golden glow, no spin — it reads
+ *  at a glance as "not ready yet" rather than "step here to travel". Walking
+ *  onto it never travels (game.ts's townStep reports a `dormant` pending,
+ *  never a `portal` one) — App.tsx shows a soft hint instead. */
+function DormantPad({ tile, w, h }: { tile: [number, number]; w: number; h: number }) {
+  const [wx, , wz] = worldOf(tile[0], tile[1], w, h);
+  return (
+    <group position={[wx, 0.03, wz]}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[0.6, 20]} />
+        <meshToonMaterial color="#7a7264" />
+      </mesh>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]}>
+        <ringGeometry args={[0.6, 0.7, 20]} />
+        <meshBasicMaterial color="#5a5648" transparent opacity={0.5} depthWrite={false} />
       </mesh>
     </group>
   );
@@ -291,6 +412,16 @@ export interface TownSceneProps {
   onApproach: (villagerId: string | null) => void;
   /** Fired whenever adjacency to the Home building's door tile changes. */
   onApproachHome?: (near: boolean) => void;
+  /** Fired whenever adjacency to the Aldercradle tree's tile changes. */
+  onApproachTree?: (near: boolean) => void;
+  /** How many of the 8 Heartseeds are recovered (0..8) — drives the
+   *  Aldercradle tree's bloom stage. Defaults to 0 (a bare, withered sapling)
+   *  so this component never needs game.ts to render something reasonable. */
+  healedCount?: number;
+  /** Dormant future-world pads to render (default the full TOWN_DORMANT_PADS
+   *  list — unlike zone pads, ALL 5 always render dimmed; there's no unlock
+   *  state for a world that doesn't exist yet). */
+  dormantPads?: TownDormantPad[];
   /** Show the built-in "E: talk to <name>" hint overlay. Default true. */
   showApproachHint?: boolean;
 }
@@ -307,6 +438,9 @@ export function TownScene({
   onMove: _onMove,
   onApproach,
   onApproachHome,
+  onApproachTree,
+  healedCount = 0,
+  dormantPads = TOWN_DORMANT_PADS,
   showApproachHint = true,
 }: TownSceneProps) {
   const playerPos = useRef(new THREE.Vector3());
@@ -353,6 +487,19 @@ export function TownScene({
     }
   }, [nearHome, onApproachHome]);
 
+  // Same adjacency rule again — the Aldercradle's own tile, or one step away.
+  const nearTree = useMemo(
+    () => gridDistance(playerTile[0], playerTile[1], TOWN_TREE_TILE[0], TOWN_TREE_TILE[1]) <= APPROACH_RADIUS,
+    [playerTile],
+  );
+  const lastNearTree = useRef(false);
+  useEffect(() => {
+    if (lastNearTree.current !== nearTree) {
+      lastNearTree.current = nearTree;
+      onApproachTree?.(nearTree);
+    }
+  }, [nearTree, onApproachTree]);
+
   return (
     <>
       <Canvas
@@ -366,9 +513,13 @@ export function TownScene({
         <GooberEnv palette={ZONE_PALETTE} />
         <FollowCam target={playerPos} />
         <TownTerrain />
+        <AldercradleTree w={w} h={h} healedCount={healedCount} />
         <HomeBuilding w={w} h={h} />
         {portals.map((p) => (
           <PortalPad key={p.zoneId} tile={p.tile} w={w} h={h} />
+        ))}
+        {dormantPads.map((p) => (
+          <DormantPad key={p.worldId} tile={p.tile} w={w} h={h} />
         ))}
         <Actor
           spec={specForSeed("player")}
@@ -397,6 +548,9 @@ export function TownScene({
       )}
       {showApproachHint && !nearestVillager && nearHome && (
         <div className="town-approach-hint">E: enter Home</div>
+      )}
+      {showApproachHint && !nearestVillager && !nearHome && nearTree && (
+        <div className="town-approach-hint">E: visit the Aldercradle</div>
       )}
     </>
   );
