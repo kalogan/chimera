@@ -3,11 +3,14 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { MarchingCubes } from "three/examples/jsm/objects/MarchingCubes.js";
 import type { GooberSpec } from "game-kit/creature";
+import { QUALITY } from "./quality.js";
 
 // Field → world mapping. Metaballs live in the MarchingCubes [0,1] field; its mesh
 // spans geometry [-1,1]; a parent group scales that to WORLD. K scales creature-local
 // units into the field; YOFF lifts the creature so its feet sit near the field floor.
-const RES = 48;
+// Field resolution is device-adaptive (48 desktop / ~22 low-end phone) — the
+// dominant per-goober render + build cost. See quality.ts.
+const RES = QUALITY.gooberRes;
 const ISO = 80;
 const SUB = 12;
 const K = 0.26;
@@ -193,7 +196,7 @@ export function Goober({
       rotation={[0, facing, 0]}
     >
       <primitive object={mc} />
-      <mesh geometry={mc.geometry} material={rimMat} />
+      {QUALITY.rim && <mesh geometry={mc.geometry} material={rimMat} />}
       <group ref={eyeGroup}>
         {spec.eyes.map((e, i) => {
           const g = toGeom(e.x, e.y, e.z);

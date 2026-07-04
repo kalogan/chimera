@@ -16,6 +16,7 @@ import { creatureFromToken, type GooberSpec } from "game-kit/creature";
 import type { ZoneState } from "game-kit/world-runtime";
 import { Goober } from "./Goober.js";
 import { ResponsiveFov } from "./responsive-cam.js";
+import { QUALITY } from "./quality.js";
 import {
   ContactBlob,
   GooberEnv,
@@ -296,6 +297,7 @@ export function ZoneScene({
     <Canvas
       className="stage"
       shadows={false}
+      dpr={[1, QUALITY.dprCap]}
       camera={{ position: [spawnX, CAM_UP, spawnZ + CAM_BACK], fov: CAM_FOV }}
     >
       <color attach="background" args={[theme.bg]} />

@@ -20,6 +20,8 @@ import { Billboard } from "game-kit/billboard/r3f";
 import { creatureFromToken, seedToken, type GooberSpec } from "game-kit/creature";
 import { Goober } from "./Goober.js";
 import { ContactBlob, GooberEnv, ZONE_PALETTE } from "./env.js";
+import { ResponsiveFov } from "./responsive-cam.js";
+import { QUALITY } from "./quality.js";
 import {
   TOWN_HEIGHT,
   TOWN_TILES,
@@ -274,9 +276,11 @@ export function TownScene({
       <Canvas
         className="stage"
         shadows={false}
+        dpr={[1, QUALITY.dprCap]}
         camera={{ position: [spawnX, CAM_UP, spawnZ + CAM_BACK], fov: CAM_FOV }}
       >
         <color attach="background" args={[TOWN_BG]} />
+        <ResponsiveFov baseFov={CAM_FOV} maxFov={54} />
         <GooberEnv palette={ZONE_PALETTE} />
         <FollowCam target={playerPos} />
         <TownTerrain />
