@@ -11,6 +11,7 @@ import {
   type BattleState,
   type BattleAction,
   type BattleEvent,
+  type BattleItemEffect,
 } from './index.js';
 
 // ── team builders ────────────────────────────────────────────────────────────
@@ -238,5 +239,196 @@ describe('a full battle plays to victory or defeat', () => {
     const r = step(state, { type: 'defend' });
     expect(r.events).toEqual([]);
     expect(r.state).toBe(state);
+  });
+});
+
+// ── item action ──────────────────────────────────────────────────────────────
+
+describe('item action (economy-decoupled: carries a plain effect, not an item id)', () => {
+  function itemAction(targetId: string, effect: BattleItemEffect): BattleAction {
+    return { type: 'item', targetId, effect };
+  }
+
+  it('heals a hurt ally: HP rises, capped at maxHp', () => {
+    const state = createBattle(team('P', 3), team('E', 3), 11);
+    const actorId = state.turnOrder[state.activeIndex]!;
+    const ally = state.playerTeam.find((c) => c.id !== actorId) ?? state.playerTeam[0]!;
+    ally.currentHp = 1;
+    const { state: after, events } = step(state, itemAction(ally.id, { heal: 9999 }));
+    const healedAlly = findCombatant(after, ally.id)!;
+    expect(healedAlly.currentHp).toBe(healedAlly.maxHp);
+    const heal = events.find((e) => e.type === 'heal' && e.targetId === ally.id);
+    expect(heal).toBeDefined();
+  });
+
+  it('a modest heal amount is not clamped away — HP rises by the given amount', () => {
+    const state = createBattle(team('P', 3), team('E', 3), 12);
+    const actorId = state.turnOrder[state.activeIndex]!;
+    const ally = state.playerTeam.find((c) => c.id !== actorId) ?? state.playerTeam[0]!;
+    ally.currentHp = Math.max(1, ally.maxHp - 10);
+    const before = ally.currentHp;
+    const { state: after } = step(state, itemAction(ally.id, { heal: 5 }));
+    const healedAlly = findCombatant(after, ally.id)!;
+    expect(healedAlly.currentHp).toBe(Math.min(ally.maxHp, before + 5));
+  });
+
+  it('restores MP, capped at maxMp', () => {
+    const state = createBattle(team('P', 3), team('E', 3), 13);
+    const actorId = state.turnOrder[state.activeIndex]!;
+    const ally = state.playerTeam.find((c) => c.id !== actorId) ?? state.playerTeam[0]!;
+    ally.currentMp = 0;
+    const { state: after } = step(state, itemAction(ally.id, { mp: 9999 }));
+    const restoredAlly = findCombatant(after, ally.id)!;
+    expect(restoredAlly.currentMp).toBe(restoredAlly.maxMp);
+  });
+
+  it('MP restore is clamped to a partial amount when not overfull', () => {
+    const state = createBattle(team('P', 3), team('E', 3), 14);
+    const actorId = state.turnOrder[state.activeIndex]!;
+    const ally = state.playerTeam.find((c) => c.id !== actorId) ?? state.playerTeam[0]!;
+    ally.currentMp = 0;
+    const cappedAmount = Math.max(1, Math.floor(ally.maxMp / 2));
+    const { state: after } = step(state, itemAction(ally.id, { mp: cappedAmount }));
+    const restoredAlly = findCombatant(after, ally.id)!;
+    expect(restoredAlly.currentMp).toBe(Math.min(ally.maxMp, cappedAmount));
+  });
+
+  it('revives a fainted ally: alive becomes true and HP > 0', () => {
+    const state = createBattle(team('P', 3), team('E', 3), 15);
+    const actorId = state.turnOrder[state.activeIndex]!;
+    const fainted = state.playerTeam.find((c) => c.id !== actorId) ?? state.playerTeam[0]!;
+    fainted.alive = false;
+    fainted.currentHp = 0;
+    const { state: after, events } = step(state, itemAction(fainted.id, { revive: true }));
+    const revived = findCombatant(after, fainted.id)!;
+    expect(revived.alive).toBe(true);
+    expect(revived.currentHp).toBeGreaterThan(0);
+    expect(revived.currentHp).toBe(Math.round(revived.maxHp * 0.5));
+    expect(events.some((e) => e.type === 'item' && e.targetId === fainted.id)).toBe(true);
+  });
+
+  it('revive honors an explicit heal amount as the post-revive HP', () => {
+    const state = createBattle(team('P', 3), team('E', 3), 16);
+    const actorId = state.turnOrder[state.activeIndex]!;
+    const fainted = state.playerTeam.find((c) => c.id !== actorId) ?? state.playerTeam[0]!;
+    fainted.alive = false;
+    fainted.currentHp = 0;
+    const reviveHp = Math.max(1, Math.floor(fainted.maxHp / 4));
+    const { state: after } = step(state, itemAction(fainted.id, { revive: true, heal: reviveHp }));
+    const revived = findCombatant(after, fainted.id)!;
+    expect(revived.alive).toBe(true);
+    expect(revived.currentHp).toBe(reviveHp);
+  });
+
+  it('using an item consumes the turn: the enemy gets to act (an enemy event follows)', () => {
+    // Seed chosen so the field is a straightforward 1v1 — the very next slot
+    // after the player's item action MUST belong to the enemy, so a single
+    // `step` call is guaranteed to run the enemy's turn too.
+    const state = createBattle(team('P', 1), team('E', 1), 30);
+    const actorId = state.turnOrder[state.activeIndex]!;
+    expect(actorId).toBe('P0');
+    const ally = state.playerTeam[0]!;
+    ally.currentHp = Math.max(1, ally.maxHp - 5);
+    const { events } = step(state, itemAction(ally.id, { heal: 3 }));
+    // The player's own turn-start, then (turn consumed → advance) an enemy
+    // action following it in the SAME event stream — proof the turn passed.
+    const playerTurnIdx = events.findIndex((e) => e.type === 'turn-start' && e.actorId === 'P0');
+    expect(playerTurnIdx).toBeGreaterThanOrEqual(0);
+    const enemyActedAfter = events
+      .slice(playerTurnIdx + 1)
+      .some((e) => e.type === 'action' && e.actorId === 'E0');
+    const battleEnded = events.some((e) => e.type === 'victory' || e.type === 'defeat');
+    expect(enemyActedAfter || battleEnded).toBe(true);
+  });
+
+  it('healing is clamped: no overheal past max even from full', () => {
+    const state = createBattle(team('P', 3), team('E', 3), 18);
+    const actorId = state.turnOrder[state.activeIndex]!;
+    const ally = state.playerTeam.find((c) => c.id !== actorId) ?? state.playerTeam[0]!;
+    expect(ally.currentHp).toBe(ally.maxHp); // starts full
+    const { state: after, events } = step(state, itemAction(ally.id, { heal: 50 }));
+    const healedAlly = findCombatant(after, ally.id)!;
+    expect(healedAlly.currentHp).toBe(healedAlly.maxHp);
+    const heal = events.find((e) => e.type === 'heal' && e.targetId === ally.id);
+    if (heal && heal.type === 'heal') expect(heal.amount).toBe(0);
+  });
+
+  it('reviving a living target is a guarded no-op (still consumes the turn)', () => {
+    const state = createBattle(team('P', 3), team('E', 3), 19);
+    const actorId = state.turnOrder[state.activeIndex]!;
+    const ally = state.playerTeam.find((c) => c.id !== actorId) ?? state.playerTeam[0]!;
+    expect(ally.alive).toBe(true);
+    const before = ally.currentHp;
+    const { state: after, events } = step(state, itemAction(ally.id, { revive: true }));
+    const stillAlive = findCombatant(after, ally.id)!;
+    expect(stillAlive.alive).toBe(true);
+    expect(stillAlive.currentHp).toBe(before);
+    // No 'heal' event emitted for the guarded no-op — only the 'item' event.
+    expect(events.some((e) => e.type === 'heal' && e.targetId === ally.id)).toBe(false);
+    expect(events.some((e) => e.type === 'item' && e.targetId === ally.id)).toBe(true);
+    // Turn was still consumed: the actor's own turn-start is present.
+    expect(events.some((e) => e.type === 'turn-start' && e.actorId === actorId)).toBe(true);
+  });
+
+  it('healing a fainted target without revive is guarded — no HP change', () => {
+    const state = createBattle(team('P', 3), team('E', 3), 20);
+    const actorId = state.turnOrder[state.activeIndex]!;
+    const fainted = state.playerTeam.find((c) => c.id !== actorId) ?? state.playerTeam[0]!;
+    fainted.alive = false;
+    fainted.currentHp = 0;
+    const { state: after, events } = step(state, itemAction(fainted.id, { heal: 20 }));
+    const stillFainted = findCombatant(after, fainted.id)!;
+    expect(stillFainted.alive).toBe(false);
+    expect(stillFainted.currentHp).toBe(0);
+    expect(events.some((e) => e.type === 'heal' && e.targetId === fainted.id)).toBe(false);
+  });
+
+  it('emits a well-formed item event carrying actorId, targetId, and the effect', () => {
+    const state = createBattle(team('P', 3), team('E', 3), 21);
+    const actorId = state.turnOrder[state.activeIndex]!;
+    const ally = state.playerTeam.find((c) => c.id !== actorId) ?? state.playerTeam[0]!;
+    const effect: BattleItemEffect = { heal: 4 };
+    const { events } = step(state, itemAction(ally.id, effect));
+    const item = events.find((e) => e.type === 'item');
+    expect(item).toBeDefined();
+    if (item && item.type === 'item') {
+      expect(item.actorId).toBe(actorId);
+      expect(item.targetId).toBe(ally.id);
+      expect(item.effect).toEqual(effect);
+    }
+  });
+
+  it('a heal-and-mp combo effect applies both in one action', () => {
+    const state = createBattle(team('P', 3), team('E', 3), 22);
+    const actorId = state.turnOrder[state.activeIndex]!;
+    const ally = state.playerTeam.find((c) => c.id !== actorId) ?? state.playerTeam[0]!;
+    ally.currentHp = 1;
+    ally.currentMp = 0;
+    const { state: after } = step(state, itemAction(ally.id, { heal: 5, mp: 3 }));
+    const updated = findCombatant(after, ally.id)!;
+    expect(updated.currentHp).toBe(Math.min(updated.maxHp, 6));
+    expect(updated.currentMp).toBe(Math.min(updated.maxMp, 3));
+  });
+
+  it('unknown targetId is guarded — no crash, item event still emitted, turn still consumed', () => {
+    const state = createBattle(team('P', 3), team('E', 3), 23);
+    const actorId = state.turnOrder[state.activeIndex]!;
+    const { events } = step(state, itemAction('nope-not-a-real-id', { heal: 10 }));
+    expect(events.some((e) => e.type === 'item')).toBe(true);
+    expect(events.some((e) => e.type === 'turn-start' && e.actorId === actorId)).toBe(true);
+  });
+
+  it('determinism holds: same seed + same item action → identical events and state', () => {
+    const run = () => {
+      const state = createBattle(team('P', 3), team('E', 3), 24);
+      const actorId = state.turnOrder[state.activeIndex]!;
+      const ally = state.playerTeam.find((c) => c.id !== actorId) ?? state.playerTeam[0]!;
+      ally.currentHp = 1;
+      return step(state, { type: 'item', targetId: ally.id, effect: { heal: 7 } });
+    };
+    const a = run();
+    const b = run();
+    expect(a.events).toEqual(b.events);
+    expect(a.state).toEqual(b.state);
   });
 });

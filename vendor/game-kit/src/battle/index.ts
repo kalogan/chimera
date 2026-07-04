@@ -146,7 +146,21 @@ export interface BattleState {
 }
 
 /** What kind of thing an actor did — mirrors `BattleAction` for the juice layer. */
-export type ActionKind = 'attack' | 'skill' | 'defend' | 'scout' | 'swap' | 'flee';
+export type ActionKind = 'attack' | 'skill' | 'defend' | 'scout' | 'swap' | 'flee' | 'item';
+
+/**
+ * A plain-data effect payload for the `item` action. DECOUPLED from the economy
+ * module on purpose: battle never resolves an item id or looks up a recipe —
+ * the game/assembly resolves its economy item to this shape and hands it in.
+ */
+export interface BattleItemEffect {
+  /** HP to restore (pre-clamp; clamped to maxHp). Ignored on a fainted target unless `revive`. */
+  heal?: number;
+  /** MP to restore (pre-clamp; clamped to maxMp). */
+  mp?: number;
+  /** Un-faint a fainted target. See `resolveItem` for the exact hp-on-revive rule. */
+  revive?: boolean;
+}
 
 /** The player's chosen action for the current actor. */
 export type BattleAction =
@@ -155,7 +169,8 @@ export type BattleAction =
   | { type: 'defend' }
   | { type: 'scout'; targetId: string }
   | { type: 'swap'; benchId: string }
-  | { type: 'flee' };
+  | { type: 'flee' }
+  | { type: 'item'; targetId: string; effect: BattleItemEffect };
 
 /**
  * The event stream. Each variant carries enough for an audio/juice layer to
@@ -174,6 +189,7 @@ export type BattleEvent =
       effectiveness: Effectiveness;
     }
   | { type: 'heal'; sourceId: string; targetId: string; amount: number }
+  | { type: 'item'; actorId: string; targetId: string; effect: BattleItemEffect }
   | { type: 'buff'; sourceId: string; targetId: string; stat: 'atk' | 'def'; magnitude: number }
   | { type: 'debuff'; sourceId: string; targetId: string; stat: 'atk' | 'def'; magnitude: number }
   | { type: 'faint'; targetId: string }
@@ -400,6 +416,9 @@ function applyHeal(source: Combatant, target: Combatant, amount: number, events:
   events.push({ type: 'heal', sourceId: source.id, targetId: target.id, amount: healed });
 }
 
+/** Fraction of maxHp a bare `revive: true` (no explicit `heal`) restores. */
+const REVIVE_HP_FRACTION = 0.5;
+
 // ── action resolution (shared by player + enemy AI) ──────────────────────────
 
 function actionKind(action: BattleAction): ActionKind {
@@ -465,6 +484,11 @@ function resolveAction(
 
     case 'flee': {
       resolveFlee(state, actor, rng, events);
+      return;
+    }
+
+    case 'item': {
+      resolveItem(state, actor, action.targetId, action.effect, events);
       return;
     }
   }
@@ -618,6 +642,59 @@ function resolveFlee(state: BattleState, actor: Combatant, rng: Rng, events: Bat
   // for the phase (the run is over) but emit NO `defeat` event — the assembly
   // reads the `flee` event to tell a flight apart from a wipe.
   if (success) state.phase = 'lost';
+}
+
+/**
+ * Apply a plain `BattleItemEffect` to a target combatant. The action still
+ * CONSUMES the actor's turn even on a guarded/no-op use (same pattern as an
+ * unaffordable skill fizzling to a `miss` — invalid uses don't crash and don't
+ * get a free re-try, they just spend the turn with minimal/no effect).
+ *
+ * Rules:
+ *  - `heal` restores hp, clamped to maxHp. Ignored on a fainted target UNLESS
+ *    `revive` is also set (a plain heal cannot raise the dead — that's what
+ *    `revive` is for).
+ *  - `mp` restores mp, clamped to maxMp. Applies regardless of alive/fainted
+ *    (a fainted target still "holds" unspent mp in this model) but is a no-op
+ *    if the target is missing.
+ *  - `revive` un-faints a FAINTED target only (reviving a living target is a
+ *    guarded no-op — no double-heal side channel). On revive, currentHp is set
+ *    to `max(1, heal ?? round(maxHp * REVIVE_HP_FRACTION))` — an explicit
+ *    `heal` amount doubles as the post-revive hp when given, else half maxHp.
+ *
+ * Always emits the `item` event (so juice/audio can react to "an item was
+ * used" even when the mechanical effect was a no-op), plus a `heal` event for
+ * whatever hp/mp actually moved, reusing the existing heal event shape.
+ */
+function resolveItem(
+  state: BattleState,
+  actor: Combatant,
+  targetId: string,
+  effect: BattleItemEffect,
+  events: BattleEvent[],
+): void {
+  const target = findCombatant(state, targetId);
+  events.push({ type: 'item', actorId: actor.id, targetId, effect });
+  if (!target) return;
+
+  if (effect.revive) {
+    if (target.alive) return; // guarded: reviving a living target is a no-op
+    const hp = Math.max(1, effect.heal ?? Math.round(target.maxHp * REVIVE_HP_FRACTION));
+    target.alive = true;
+    target.currentHp = Math.min(target.maxHp, hp);
+    // `active` was never cleared on faint (a fainted combatant keeps its field
+    // slot, just excluded from `livingFieldTargets`), so revive needs no field
+    // bookkeeping — it simply becomes eligible to act/target again in place.
+    events.push({ type: 'heal', sourceId: actor.id, targetId: target.id, amount: target.currentHp });
+  } else if (typeof effect.heal === 'number' && target.alive) {
+    applyHeal(actor, target, effect.heal, events);
+  }
+  // else: healing a fainted target without `revive` is guarded — no effect.
+
+  if (typeof effect.mp === 'number') {
+    const restored = Math.max(0, Math.min(effect.mp, target.maxMp - target.currentMp));
+    target.currentMp += restored;
+  }
 }
 
 // ── enemy AI ─────────────────────────────────────────────────────────────────
