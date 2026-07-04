@@ -217,8 +217,8 @@ export const EMBERDEEP: ZoneDescriptor = {
   grassEncounterChance: 0.3,
   roamers: [
     { id: "roam-e1", token: tieredRoamerToken("dragon", "w124"), at: [3, 2], wander: "seek" },
-    { id: "roam-e2", token: tieredRoamerToken("dragon", "w137"), at: [9, 2], wander: "random" },
-    { id: "roam-e3", token: tieredRoamerToken("dragon", "w146"), at: [2, 6], wander: "random" },
+    { id: "roam-e2", token: tieredRoamerToken("dragon", "w137"), at: [10, 2], wander: "random" },
+    { id: "roam-e3", token: tieredRoamerToken("dragon", "w146"), at: [2, 7], wander: "random" },
     { id: "roam-e4", token: tieredRoamerToken("dragon", "w128"), at: [10, 6], wander: "seek" },
     guardianRoamer("emberdeep", [6, 7]),
   ],
@@ -263,7 +263,7 @@ export const TIDEWRACK: ZoneDescriptor = {
   grassEncounterChance: 0.3,
   roamers: [
     { id: "roam-t1", token: tieredRoamerToken("aquatic", "w107"), at: [2, 2], wander: "seek" },
-    { id: "roam-t2", token: tieredRoamerToken("aquatic", "w120"), at: [9, 2], wander: "random" },
+    { id: "roam-t2", token: tieredRoamerToken("aquatic", "w120"), at: [10, 2], wander: "random" },
     { id: "roam-t3", token: tieredRoamerToken("aquatic", "w108"), at: [2, 6], wander: "random" },
     { id: "roam-t4", token: tieredRoamerToken("aquatic", "w127"), at: [10, 5], wander: "seek" },
     guardianRoamer("tidewrack", [9, 7]),

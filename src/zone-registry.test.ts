@@ -59,6 +59,19 @@ describe("zone registry", () => {
   });
 });
 
+describe("roamers + guardians never stand on a wall tile", () => {
+  it("every roamer/guardian `at` tile is walkable (not a wall) in every zone", () => {
+    for (const id of ZONE_IDS) {
+      const z = zoneById(id);
+      for (const r of z.roamers) {
+        const [x, y] = r.at;
+        const kind = z.tiles[y * z.width + x];
+        expect(kind, `${id} roamer ${r.id} at [${x},${y}] is a ${kind} tile`).not.toBe("wall");
+      }
+    }
+  });
+});
+
 describe("enterZone / travelPortal (game.ts glue)", () => {
   it("enterZone defaults to Meadowmere and unlocks it", () => {
     const g = enterZone(newGame());
