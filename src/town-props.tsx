@@ -380,10 +380,17 @@ export function MarketStall({ tint = TOWN_PROPS_PALETTE.warmDeep, position, rota
 // healedCount semantics; the Architect maps healedCount/8 -> stage).
 // ─────────────────────────────────────────────────────────────────────────
 
-const TREE_WITHERED = "#8a7a5a";
-const TREE_BUDDING = "#9db56a";
-const TREE_LUSH = "#5fae5a";
-const TREE_BLOOM = "#e7c86a";
+const TREE_BARK_WINTER = "#8f8578"; // greyed, wistful winter bark
+const TREE_BARK_WARM = "#7a5a38"; // warm lived-in bark once budding starts
+const TREE_LEAF_WITHERED = "#a89a6e"; // sparse dry clinging leaves at stage 0
+const TREE_LEAF_BUD = "#8fb35f"; // fresh budding green
+const TREE_LEAF_LUSH = "#4f9a4c"; // full lush green
+const TREE_LEAF_LUSH_LIGHT = "#8bc766"; // top-lit lush highlight
+const TREE_LEAF_GOLD = "#e9b94a"; // radiant golden bloom foliage
+const TREE_LEAF_GOLD_LIGHT = "#f7dd8a"; // top-lit gold highlight
+const TREE_UNDERSIDE_DARK = "#2f5230"; // shadowed inner/underside green
+const TREE_BLOOM_ACCENT = "#f2c8dd"; // small blossom-dot accents at full bloom
+const TREE_GLOW = "#f4d98a";
 
 function lerpColor(a: string, b: string, t: number): string {
   const pa = parseInt(a.slice(1), 16);
@@ -397,37 +404,103 @@ function lerpColor(a: string, b: string, t: number): string {
 }
 
 interface TreeStage {
-  canopyColor: string;
+  /** 0 winter / 1 budding / 2 lush / 3 golden-bloom — drives which canopy
+   *  clusters are present (sparse→full), not just their tint. */
+  bareness: number;
   trunkColor: string;
+  /** Underside/inner shadow tone for this stage's foliage family. */
+  underColor: string;
+  /** Top-lit brighter tone for this stage's foliage family. */
+  topColor: string;
+  /** Base (mid) tone for this stage's foliage family. */
+  midColor: string;
+  canopyFill: number; // 0..1 — how much of the full canopy cluster set renders
   canopyScale: number;
-  canopyOpacity: number;
   glowOpacity: number;
   lightIntensity: number;
+  blossoms: boolean;
+  motes: boolean;
 }
 
+/**
+ * A believable seasonal arc: 0 = bare wistful winter (grey bark, a scatter of
+ * dry clinging leaves, no full crown), ~0.5 = budding/green (warming bark,
+ * about half the crown filled in fresh green), ~0.8 = a full lush green
+ * crown, 1.0 = golden-blossomed (warm gold canopy + blossom dots + glow +
+ * light + drifting motes). Every value in between eases smoothly.
+ */
 function stageFor(t01: number): TreeStage {
   const t = Math.max(0, Math.min(1, t01));
-  const canopyColor =
-    t < 0.5 ? lerpColor(TREE_WITHERED, TREE_BUDDING, t / 0.5) : lerpColor(TREE_LUSH, TREE_BLOOM, (t - 0.5) / 0.5);
-  const trunkColor = lerpColor("#6b5638", "#8a6a3f", t);
+  const trunkColor = lerpColor(TREE_BARK_WINTER, TREE_BARK_WARM, Math.min(1, t / 0.5));
+  let midColor: string, topColor: string, underColor: string;
+  if (t < 0.5) {
+    const lt = t / 0.5;
+    midColor = lerpColor(TREE_LEAF_WITHERED, TREE_LEAF_BUD, lt);
+    topColor = midColor;
+    underColor = lerpColor("#6b6248", "#3f6a3f", lt);
+  } else if (t < 0.85) {
+    const lt = (t - 0.5) / 0.35;
+    midColor = lerpColor(TREE_LEAF_BUD, TREE_LEAF_LUSH, lt);
+    topColor = lerpColor(TREE_LEAF_BUD, TREE_LEAF_LUSH_LIGHT, lt);
+    underColor = lerpColor("#3f6a3f", TREE_UNDERSIDE_DARK, lt);
+  } else {
+    const lt = (t - 0.85) / 0.15;
+    midColor = lerpColor(TREE_LEAF_LUSH, TREE_LEAF_GOLD, lt);
+    topColor = lerpColor(TREE_LEAF_LUSH_LIGHT, TREE_LEAF_GOLD_LIGHT, lt);
+    underColor = lerpColor(TREE_UNDERSIDE_DARK, "#7a5a24", lt);
+  }
   return {
-    canopyColor,
+    bareness: 1 - t,
     trunkColor,
-    canopyScale: 0.55 + t * 0.65,
-    canopyOpacity: 0.55 + t * 0.45,
-    glowOpacity: t * 0.5,
-    lightIntensity: t * 1.4,
+    underColor,
+    topColor,
+    midColor,
+    canopyFill: 0.4 + t * 0.6,
+    canopyScale: 0.62 + t * 0.5,
+    glowOpacity: t > 0.85 ? ((t - 0.85) / 0.15) * 0.5 : 0,
+    lightIntensity: t > 0.85 ? ((t - 0.85) / 0.15) * 1.3 : 0,
+    blossoms: t > 0.92,
+    motes: t > 0.95,
   };
 }
 
-const CANOPY_BALLS: Array<[number, number, number, number]> = [
-  [0, 0, 0, 1.0],
-  [0.5, 0.18, 0.3, 0.72],
-  [-0.5, 0.12, -0.25, 0.7],
-  [0.15, 0.42, -0.4, 0.6],
-  [-0.3, 0.38, 0.35, 0.62],
-  [0, -0.15, 0.5, 0.58],
+// Canopy foliage clusters — one FIXED layout (never regenerated; `stageFor`
+// only recomputes color/scale/fill), grouped in three "tones" per cluster:
+// [x, y, z, baseRadius, tone] where tone 0 = underside/shadow, 1 = mid, 2 =
+// top-lit highlight. Positioned around the branch tips (see BRANCH_DIRS)
+// plus a couple of filler balls to round out the silhouette, so the crown
+// reads as one full, layered, rounded mass rather than a single blob.
+const CANOPY_CLUSTERS: Array<[number, number, number, number, 0 | 1 | 2]> = [
+  // Core mass, low + wide (partly shadowed underside).
+  [0, -0.05, 0, 1.05, 0],
+  [0, 0.18, 0, 1.0, 1],
+  // Branch-tip clusters (reaching up/out to match the 4 split limbs).
+  [0.68, 0.55, 0.22, 0.72, 1],
+  [0.78, 0.62, 0.24, 0.5, 2],
+  [-0.62, 0.5, -0.3, 0.7, 1],
+  [-0.72, 0.58, -0.34, 0.48, 2],
+  [0.2, 0.78, -0.55, 0.62, 1],
+  [0.24, 0.86, -0.62, 0.42, 2],
+  [-0.28, 0.7, 0.58, 0.66, 1],
+  [-0.3, 0.78, 0.66, 0.44, 2],
+  // Fillers rounding out the silhouette + a top crown cap.
+  [0.15, 0.98, 0.05, 0.5, 2],
+  [-0.1, 0.35, 0.5, 0.55, 0],
+  [0.35, 0.28, -0.42, 0.5, 0],
+  [-0.45, 0.2, 0.15, 0.52, 0],
 ];
+
+// The 4 branch limbs split from the trunk — [angle around Y, tilt-up, length].
+// Angles chosen to roughly aim at the CANOPY_CLUSTERS tip positions above.
+const BRANCH_DIRS: Array<[number, number, number]> = [
+  [0.32, 0.55, 0.95],
+  [-2.75, 0.5, 0.9],
+  [1.9, 0.7, 0.85],
+  [-1.35, 0.6, 0.88],
+];
+
+// Flared root ridges spreading from the trunk base onto the mound.
+const ROOT_ANGLES = [0.4, 1.7, 3.0, 4.3, 5.4];
 
 export interface AldercradleTreeProps extends PropTransform {
   /** Bloom progress 0..1 — bare/withered/grey at 0, full green mid-way,
@@ -437,47 +510,167 @@ export interface AldercradleTreeProps extends PropTransform {
 }
 
 /**
- * The Aldercradle world-tree as a standalone, reusable prop: a tapered trunk
- * + a small FIXED cluster of layered canopy balls (never regenerated —
- * `useMemo` keyed only on `stage` recomputes color/scale/opacity, not
- * geometry) plus a soft golden glow + point light once blooming starts.
- * Cheap and static, matching town-scene.tsx's existing AldercradleTree.
+ * The Aldercradle world-tree: a real stylized Tree of Life. A tapered trunk
+ * splits into four branches reaching upward, rooted by a flared base of root
+ * ridges; a lush, layered, OPAQUE crown of overlapping foliage clusters (a
+ * shadowed underside tone, a mid tone, and a brighter top-lit tone) forms a
+ * full rounded silhouette. `stage` (0..1) drives a believable seasonal arc:
+ * bare wistful winter -> budding green -> full lush crown -> golden blossom
+ * + glow + light + drifting motes. Geometry is a FIXED layout built once
+ * (`useMemo` keyed only on `stage` recomputes color/scale/fill, never
+ * geometry); materials are shared via the module-level `toonOf`/`basicOf`
+ * caches. A single cheap shared sway (gated on `getReducedMotion()`) is the
+ * only per-frame cost, appropriate for the one hero tree on screen.
  */
 export function AldercradleTreeProp({ stage = 1, position, rotation, scale }: AldercradleTreeProps) {
   const g = useGroupProps({ position, rotation, scale });
   const s = useMemo(() => stageFor(stage), [stage]);
-  const canopyY = 1.15;
+  const canopyY = 1.55;
+
   const trunkMat = useMemo(() => toonOf(s.trunkColor), [s.trunkColor]);
-  const canopyMat = useMemo(
-    () => toonOf(s.canopyColor, { transparent: true, opacity: s.canopyOpacity }),
-    [s.canopyColor, s.canopyOpacity],
-  );
+  const underMat = useMemo(() => toonOf(s.underColor), [s.underColor]);
+  const midMat = useMemo(() => toonOf(s.midColor), [s.midColor]);
+  const topMat = useMemo(() => toonOf(s.topColor), [s.topColor]);
+  const toneMat = [underMat, midMat, topMat] as const;
+
+  // How many canopy clusters render, sparse -> full, keyed on canopyFill
+  // (bare stage keeps only the core + a couple of tip clusters — reads as a
+  // real, if sparse, tree rather than a floating blob).
+  const visibleCount = Math.max(2, Math.round(CANOPY_CLUSTERS.length * s.canopyFill));
+
+  // A few dry withered leaf-flecks + clinging buds, visible only near the
+  // bare end of the arc, scattered near branch tips for a "sparse but alive"
+  // winter read instead of a totally naked skeleton.
+  const witheredFlecks = s.bareness > 0.35;
+
+  // Sway ref + a shared, cheap per-frame rotation — ONE transform, skipped
+  // entirely under reduced motion. A gentle "breathing" crown, not a full
+  // tree-wide wind sway (the trunk/branches stay still; only the canopy
+  // group leans, so it reads as living foliage, not a wobbling toy).
+  const canopyRef = useRef<THREE.Group>(null);
+  const reduced = useRef(getReducedMotion());
+  const phase = useRef(Math.random() * Math.PI * 2);
+  useFrame((state) => {
+    if (reduced.current || !canopyRef.current) return;
+    const t = state.clock.elapsedTime;
+    canopyRef.current.rotation.z = Math.sin(t * 0.35 + phase.current) * 0.02;
+    canopyRef.current.rotation.x = Math.sin(t * 0.27 + phase.current * 1.3) * 0.015;
+    canopyRef.current.scale.setScalar(1 + Math.sin(t * 0.5 + phase.current) * 0.012);
+  });
+
   return (
     <group {...g}>
-      <mesh position={[0, 0.08, 0]}>
-        <cylinderGeometry args={[0.62, 0.72, 0.16, 10]} />
+      {/* Flared, rooted base — a low mound + root ridges spreading outward. */}
+      <mesh position={[0, 0.1, 0]}>
+        <cylinderGeometry args={[0.7, 0.85, 0.2, 10]} />
         <primitive object={toonOf(TOWN_PROPS_PALETTE.woodLight)} attach="material" />
       </mesh>
-      <mesh position={[0, 0.65, 0]}>
-        <cylinderGeometry args={[0.16, 0.24, 1.1, 8]} />
-        <primitive object={trunkMat} attach="material" />
-      </mesh>
-      {CANOPY_BALLS.map(([ox, oy, oz, baseR], i) => (
-        <mesh key={i} position={[ox * s.canopyScale, canopyY + oy * s.canopyScale, oz * s.canopyScale]}>
-          <sphereGeometry args={[baseR * s.canopyScale * 0.62, 8, 8]} />
-          <primitive object={canopyMat} attach="material" />
+      {ROOT_ANGLES.map((a, i) => (
+        <mesh
+          key={i}
+          position={[Math.cos(a) * 0.55, 0.09, Math.sin(a) * 0.55]}
+          rotation={[0, -a, Math.PI / 2 - 0.25]}
+        >
+          <coneGeometry args={[0.16, 0.85, 6]} />
+          <primitive object={trunkMat} attach="material" />
         </mesh>
       ))}
+
+      {/* Tapered trunk, rising to the split point. */}
+      <mesh position={[0, 0.75, 0]}>
+        <cylinderGeometry args={[0.22, 0.42, 1.3, 9]} />
+        <primitive object={trunkMat} attach="material" />
+      </mesh>
+
+      {/* The split: 3-5 branch limbs reaching upward/outward from the trunk. */}
+      {BRANCH_DIRS.map(([ay, tilt, len], i) => (
+        <mesh
+          key={i}
+          position={[Math.cos(ay) * 0.16 * len, 1.4 + Math.sin(tilt) * len * 0.42, Math.sin(ay) * 0.16 * len]}
+          rotation={[Math.cos(ay) * tilt, ay, Math.PI / 2 - tilt]}
+        >
+          <cylinderGeometry args={[0.05, 0.15, len, 6]} />
+          <primitive object={trunkMat} attach="material" />
+        </mesh>
+      ))}
+
+      {/* Canopy — layered, OPAQUE clusters forming a full rounded crown. A
+          dedicated sway group so the trunk/branches stay planted. */}
+      <group ref={canopyRef} position={[0, canopyY, 0]}>
+        {CANOPY_CLUSTERS.slice(0, visibleCount).map(([ox, oy, oz, baseR, tone], i) => (
+          <mesh key={i} position={[ox * s.canopyScale, oy * s.canopyScale, oz * s.canopyScale]}>
+            <sphereGeometry args={[baseR * s.canopyScale * 0.6, 8, 7]} />
+            <primitive object={toneMat[tone]} attach="material" />
+          </mesh>
+        ))}
+
+        {/* Sparse dry leaf-flecks near the bare end — small flat withered
+            leaf-colored discs clinging near the tip clusters. */}
+        {witheredFlecks &&
+          CANOPY_CLUSTERS.slice(0, 5).map(([ox, oy, oz], i) => (
+            <mesh key={`fleck-${i}`} position={[ox * s.canopyScale * 1.05, oy * s.canopyScale + 0.1, oz * s.canopyScale * 1.05]}>
+              <sphereGeometry args={[0.13, 6, 5]} />
+              <primitive object={toonOf(TREE_LEAF_WITHERED)} attach="material" />
+            </mesh>
+          ))}
+
+        {/* Small colored blossom-dot accents once fully golden-blooming. */}
+        {s.blossoms &&
+          CANOPY_CLUSTERS.slice(0, 9).map(([ox, oy, oz, baseR], i) => (
+            <mesh
+              key={`bloom-${i}`}
+              position={[
+                ox * s.canopyScale * 1.08,
+                oy * s.canopyScale + baseR * 0.25,
+                oz * s.canopyScale * 1.08,
+              ]}
+            >
+              <sphereGeometry args={[0.08, 6, 6]} />
+              <primitive object={toonOf(i % 2 === 0 ? TREE_BLOOM_ACCENT : TREE_LEAF_GOLD_LIGHT)} attach="material" />
+            </mesh>
+          ))}
+
+        {/* A few drifting light motes at full radiance. */}
+        {s.motes &&
+          [0, 1, 2, 3].map((i) => (
+            <MoteSpark key={`mote-${i}`} index={i} radius={1.1 * s.canopyScale} />
+          ))}
+      </group>
+
       {s.glowOpacity > 0 && (
         <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-          <circleGeometry args={[1.3, 20]} />
-          <primitive object={basicOf(TREE_BLOOM, s.glowOpacity)} attach="material" />
+          <circleGeometry args={[1.5, 20]} />
+          <primitive object={basicOf(TREE_GLOW, s.glowOpacity)} attach="material" />
         </mesh>
       )}
       {s.lightIntensity > 0 && (
-        <pointLight position={[0, 1.6, 0]} color={TREE_BLOOM} intensity={s.lightIntensity} distance={6} decay={2} />
+        <pointLight position={[0, canopyY + 0.4, 0]} color={TREE_GLOW} intensity={s.lightIntensity} distance={7} decay={2} />
       )}
     </group>
+  );
+}
+
+/** One drifting golden light mote — a tiny glowing basic-material sphere
+ *  orbiting slowly near the canopy, reduced-motion-gated (holds still). Cheap:
+ *  one mesh, one sin/cos pair per frame, no allocation. */
+function MoteSpark({ index, radius }: { index: number; radius: number }) {
+  const ref = useRef<THREE.Mesh>(null);
+  const reduced = useRef(getReducedMotion());
+  const phase = (index * 1.7) % (Math.PI * 2);
+  useFrame((state) => {
+    if (!ref.current) return;
+    if (reduced.current) {
+      ref.current.position.set(Math.cos(phase) * radius, 0.4, Math.sin(phase) * radius);
+      return;
+    }
+    const t = state.clock.elapsedTime * 0.4 + phase;
+    ref.current.position.set(Math.cos(t) * radius, 0.4 + Math.sin(t * 1.3) * 0.35, Math.sin(t) * radius);
+  });
+  return (
+    <mesh ref={ref}>
+      <sphereGeometry args={[0.045, 6, 6]} />
+      <primitive object={basicOf(TREE_GLOW, 0.85)} attach="material" />
+    </mesh>
   );
 }
 
