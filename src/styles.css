@@ -154,22 +154,15 @@ button.act.bond { border-color: var(--bond); }
 .dpad .right { right: 0; top: 50px; }
 
 /* Bottom-RIGHT action cluster: the context interact (Talk / Enter Home /
-   Aldercradle) stacked above the ☰ menu (the merged pause + settings). Right-
-   thumb reachable, aligned to the right edge. */
+   Aldercradle) stacked above the Menu button (the merged pause + settings).
+   Right-thumb reachable; `stretch` makes both buttons the SAME width so Menu
+   matches the interact button rather than being a lone square. */
 .touch-actions {
   position: absolute; right: 20px;
   bottom: calc(24px + env(safe-area-inset-bottom, 0px));
-  display: flex; flex-direction: column; align-items: flex-end; gap: 10px; z-index: 4;
+  display: flex; flex-direction: column; align-items: stretch; gap: 10px; z-index: 4;
 }
 .touch-actions .act { min-height: 52px; }
-.touch-menu {
-  min-width: 56px; min-height: 56px; padding: 0; font-size: 22px; line-height: 1;
-  background: var(--panel); border: 2px solid var(--warm-deep); border-radius: 14px;
-  box-shadow: var(--shadow); cursor: pointer; color: var(--ink);
-  display: flex; align-items: center; justify-content: center;
-  touch-action: manipulation;
-}
-.touch-menu:active { background: var(--parchment-2); transform: scale(0.96); }
 
 /* Desktop-only walking hint — narrow phones hide it (the d-pad + buttons make
    the controls obvious, and the hint used to sit in the control band). */

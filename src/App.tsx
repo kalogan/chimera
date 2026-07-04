@@ -474,12 +474,11 @@ function ZoneScreen({ game, setGame, onPause, paused }: ScreenProps & { onPause:
         </div>
         <div className="touch-actions">
           <button
-            className="touch-menu"
-            aria-label="Menu"
+            className="act"
             title="Menu (Esc)"
             onClick={() => { audio().playUi("select"); onPause(); }}
           >
-            ☰
+            Menu
           </button>
         </div>
       </div>
@@ -652,12 +651,11 @@ function TownScreen({ game, setGame, onPause, paused }: ScreenProps & { onPause:
                 {nearTree ? "Aldercradle (E)" : nearHome ? "Enter Home (E)" : "Talk (E)"}
               </button>
               <button
-                className="touch-menu"
-                aria-label="Menu"
+                className="act"
                 title="Menu (Esc)"
                 onClick={() => { audio().playUi("select"); onPause(); }}
               >
-                ☰
+                Menu
               </button>
             </div>
           </>
