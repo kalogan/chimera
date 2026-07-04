@@ -24,6 +24,10 @@ interface VercelResponseLike {
   end(): void;
 }
 
+// Runs only on Vercel's Node runtime (never in the SPA/Vite build, which excludes
+// `api/`). Declare the Node global it needs without pulling @types/node.
+declare const process: { env: Record<string, string | undefined> };
+
 const XAI_ENDPOINT = "https://api.x.ai/v1/chat/completions";
 
 export default async function handler(req: VercelRequestLike, res: VercelResponseLike): Promise<void> {
