@@ -12,6 +12,7 @@ import { Billboard } from "game-kit/billboard/r3f";
 import { creatureFromToken, type GooberSpec } from "game-kit/creature";
 import type { ZoneState } from "game-kit/world-runtime";
 import { Goober } from "./Goober.js";
+import { ContactBlob, GooberEnv, ZONE_PALETTE } from "./env.js";
 
 const TILE = 2.2;
 // Camera offset from the player: up/back chosen for ~52° downward (angled top-down
@@ -25,6 +26,38 @@ const GOOBER_SIZE = 0.42;
 
 function worldOf(x: number, y: number, w: number, h: number): [number, number, number] {
   return [(x - (w - 1) / 2) * TILE, 0, (y - (h - 1) / 2) * TILE];
+}
+
+// Ground mottling: a small tileable canvas of soft irregular blotches, layered
+// over the flat toon green so the field reads as grass rather than a pool
+// table. Deterministic (fixed seed) — built once, no Math.random in render.
+function makeGroundTexture(): THREE.CanvasTexture {
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#8ec96a";
+  ctx.fillRect(0, 0, size, size);
+  let s = 1337;
+  const rand = () => {
+    s = (s * 1103515245 + 12345) & 0x7fffffff;
+    return (s % 10000) / 10000;
+  };
+  for (let i = 0; i < 260; i++) {
+    const x = rand() * size;
+    const y = rand() * size;
+    const r = 4 + rand() * 14;
+    const dark = rand() > 0.5;
+    ctx.fillStyle = dark ? "rgba(70,120,60,0.16)" : "rgba(190,230,150,0.14)";
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  return tex;
 }
 
 /** A goober that tweens toward its tile with a little hop arc, billboarded. */
@@ -61,6 +94,7 @@ function Actor({
   });
   return (
     <group ref={grp}>
+      <ContactBlob position={[0, 0, 0]} radius={GOOBER_SIZE * 1.6} />
       <Billboard>
         <Goober spec={spec} position={[0, 0, 0]} seed={seed} sizeScale={GOOBER_SIZE} />
       </Billboard>
@@ -86,6 +120,11 @@ function FollowCam({ target }: { target: React.MutableRefObject<THREE.Vector3> }
 /** Static tile geometry: hedges, tall grass, the portal pad, the ground. */
 function Terrain({ zone }: { zone: ZoneState }) {
   const { width: w, height: h, tiles } = zone.descriptor;
+  const groundTex = useMemo(() => {
+    const tex = makeGroundTexture();
+    tex.repeat.set((w * TILE) / 6, (h * TILE) / 6);
+    return tex;
+  }, [w, h]);
   const cells = useMemo(() => {
     const out: React.ReactElement[] = [];
     for (let i = 0; i < tiles.length; i++) {
@@ -137,7 +176,7 @@ function Terrain({ zone }: { zone: ZoneState }) {
     <>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
         <planeGeometry args={[w * TILE + 8, h * TILE + 8]} />
-        <meshToonMaterial color="#8ec96a" />
+        <meshToonMaterial map={groundTex} />
       </mesh>
       {cells}
     </>
@@ -156,8 +195,7 @@ export function ZoneScene({ zone, playerSpec }: { zone: ZoneState; playerSpec: G
       camera={{ position: [spawnX, CAM_UP, spawnZ + CAM_BACK], fov: CAM_FOV }}
     >
       <color attach="background" args={["#bfe6f2"]} />
-      <hemisphereLight args={["#eaf6ff", "#7fae66", 1.1]} />
-      <directionalLight position={[6, 14, 6]} intensity={1.35} />
+      <GooberEnv palette={ZONE_PALETTE} />
       <FollowCam target={playerPos} />
       <Terrain zone={zone} />
       <Actor
