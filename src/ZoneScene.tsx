@@ -12,9 +12,10 @@ import { useMemo, useRef } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { Billboard } from "game-kit/billboard/r3f";
-import { creatureFromToken, type GooberSpec } from "game-kit/creature";
+import { type GooberSpec } from "game-kit/creature";
 import type { ZoneState } from "game-kit/world-runtime";
 import { Goober } from "./Goober.js";
+import { specForToken } from "./goober-cache.js";
 import { ResponsiveFov } from "./responsive-cam.js";
 import { getQuality } from "./quality.js";
 import {
@@ -317,7 +318,7 @@ export function ZoneScene({
       {zone.roamers.map((r) => (
         <Actor
           key={r.id}
-          spec={creatureFromToken(r.token).gooberSpec}
+          spec={specForToken(r.token)}
           tx={r.x}
           ty={r.y}
           w={w}
@@ -331,7 +332,7 @@ export function ZoneScene({
         return (
           <Actor
             key={rival.id}
-            spec={creatureFromToken(lead).gooberSpec}
+            spec={specForToken(lead)}
             tx={placement.x}
             ty={placement.y}
             w={w}

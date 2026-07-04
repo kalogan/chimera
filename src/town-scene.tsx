@@ -17,8 +17,9 @@ import { useEffect, useMemo, useRef } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { Billboard } from "game-kit/billboard/r3f";
-import { creatureFromToken, seedToken, type GooberSpec } from "game-kit/creature";
+import { type GooberSpec } from "game-kit/creature";
 import { Goober } from "./Goober.js";
+import { specForSeed } from "./goober-cache.js";
 import { ContactBlob, GooberEnv, ZONE_PALETTE } from "./env.js";
 import { ResponsiveFov } from "./responsive-cam.js";
 import { getQuality } from "./quality.js";
@@ -285,7 +286,7 @@ export function TownScene({
         <FollowCam target={playerPos} />
         <TownTerrain />
         <Actor
-          spec={creatureFromToken(seedToken("player")).gooberSpec}
+          spec={specForSeed("player")}
           tx={playerTile[0]}
           ty={playerTile[1]}
           w={w}
@@ -296,7 +297,7 @@ export function TownScene({
         {villagers.map((v, i) => (
           <Actor
             key={v.id}
-            spec={creatureFromToken(seedToken(v.id)).gooberSpec}
+            spec={specForSeed(v.id)}
             tx={v.tile[0]}
             ty={v.tile[1]}
             w={w}

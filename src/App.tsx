@@ -4,6 +4,7 @@ import type { BattleState, Combatant } from "game-kit/battle";
 import type { Dir } from "game-kit/world-runtime";
 import { GooberStage, type Placed } from "./GooberStage.js";
 import { ZoneScene } from "./ZoneScene.js";
+import { specForToken } from "./goober-cache.js";
 import { DexScreen } from "./dex.js";
 import { audio, resumeAudio } from "./audio.js";
 import { playBattleEvents } from "./battle-audio.js";
@@ -322,7 +323,10 @@ const KEY_DIR: Record<string, Dir> = {
 function ZoneScreen({ game, setGame, onPause, onSettings, paused }: ScreenProps & { onPause: () => void; onSettings: () => void; paused: boolean }) {
   const zone = game.zone;
   const zoneId = zone?.descriptor.id ?? "meadowmere";
-  const playerSpec = useMemo(() => partyCreatures(game)[0]?.gooberSpec, [game]);
+  // Stable per-token spec (see goober-cache): a fresh spec object each step is
+  // what used to rebuild the player's metaball mesh on every walk step.
+  const lead = game.roster.party[0];
+  const playerSpec = lead ? specForToken(lead) : undefined;
   const busy = useRef(false); // locked while an encounter/portal transition plays
   const lastStep = useRef(0);
 
