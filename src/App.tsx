@@ -5,6 +5,7 @@ import type { Dir } from "game-kit/world-runtime";
 import { GooberStage, type Placed } from "./GooberStage.js";
 import { ZoneScene } from "./ZoneScene.js";
 import { specForToken } from "./goober-cache.js";
+import { IntroScene } from "./intro.js";
 import { DexScreen } from "./dex.js";
 import { audio, resumeAudio } from "./audio.js";
 import { playBattleEvents } from "./battle-audio.js";
@@ -66,9 +67,11 @@ import {
 
 // Shell layer state — SEPARATE from game.ts's `Screen` type on purpose (that's
 // the game-logic router; splash/pause are a shell concern layered on top of
-// whatever screen the game is currently on). "splash" gates the whole app
-// before any game state is shown; "playing" reveals the normal screen router.
-type ShellPhase = "splash" | "playing";
+// whatever screen the game is currently on). "splash" gates the whole app before
+// any game state is shown; "intro" plays the short "The Fading" cutscene once the
+// player starts; "playing" reveals the normal screen router (a fresh game lands
+// on game.screen === "town").
+type ShellPhase = "splash" | "intro" | "playing";
 
 export function App() {
   const [game, setGame] = useState<GameState>(() => newGame());
@@ -120,12 +123,21 @@ export function App() {
       <div style={{ position: "fixed", inset: 0 }}>
         <Splash
           onStart={() => {
+            // The Start tap is a valid autoplay-unlock gesture — resume the
+            // audio rig now so the intro's chime + the town ambient can sound.
             resumedRef.current = true;
-            setShellPhase("playing");
+            void resumeAudio();
+            setShellPhase("intro");
           }}
         />
       </div>
     );
+  }
+
+  if (shellPhase === "intro") {
+    // "The Fading" — a short, skippable premise cutscene; on done/skip we drop
+    // into the town hub (game.screen is already "town" for a fresh game).
+    return <IntroScene onDone={() => setShellPhase("playing")} />;
   }
 
   const canContinue = !saveConsumed && !!saveOffer;
