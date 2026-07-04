@@ -6,11 +6,13 @@ import { GooberStage, type Placed } from "./GooberStage.js";
 import { ZoneScene } from "./ZoneScene.js";
 import { specForToken } from "./goober-cache.js";
 import { IntroScene } from "./intro.js";
+import { StudioLogo } from "./studio-logo.js";
 import { DexScreen } from "./dex.js";
 import { audio, resumeAudio } from "./audio.js";
 import { playBattleEvents } from "./battle-audio.js";
 import { Splash } from "./shell/splash.js";
 import { PauseOverlay } from "./shell/pause.js";
+import { SettingsPanel } from "./shell/settings.js";
 import { HudBar } from "./shell/hud.js";
 import { itemDef, shopFor, SELL_FRACTION } from "game-kit/economy";
 import { ZONE_LABELS, GUARDIAN_TITLE } from "./zone.js";
@@ -73,16 +75,18 @@ import {
 
 // Shell layer state — SEPARATE from game.ts's `Screen` type on purpose (that's
 // the game-logic router; splash/pause are a shell concern layered on top of
-// whatever screen the game is currently on). "splash" gates the whole app before
-// any game state is shown; "intro" plays the short "The Fading" cutscene once the
-// player starts; "playing" reveals the normal screen router (a fresh game lands
-// on game.screen === "town").
-type ShellPhase = "splash" | "intro" | "playing";
+// whatever screen the game is currently on). "studio" plays the WOVENWILD ident;
+// "splash" is the title screen (New Game / Continue / Settings); "intro" plays
+// the short "The Fading" cutscene when starting fresh; "playing" reveals the
+// normal screen router (a fresh game lands on game.screen === "town").
+type ShellPhase = "studio" | "splash" | "intro" | "playing";
 
 export function App() {
   const [game, setGame] = useState<GameState>(() => newGame());
-  const [shellPhase, setShellPhase] = useState<ShellPhase>("splash");
+  const [shellPhase, setShellPhase] = useState<ShellPhase>("studio");
   const [paused, setPaused] = useState(false);
+  // Settings opened from the title screen (the splash has no pause menu of its own).
+  const [splashSettingsOpen, setSplashSettingsOpen] = useState(false);
   const resumedRef = useRef(false);
   // A save the player hasn't yet chosen to load/dismiss this session. Splash
   // (shell/splash.tsx) is NOT ours to edit and always starts a fresh game —
@@ -114,18 +118,47 @@ export function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [shellPhase, paused]);
 
+  if (shellPhase === "studio") {
+    // The WOVENWILD studio ident — auto-advances (or tap-skips) to the title.
+    return <StudioLogo onDone={() => setShellPhase("splash")} />;
+  }
+
   if (shellPhase === "splash") {
     return (
       <div style={{ position: "fixed", inset: 0 }}>
         <Splash
-          onStart={() => {
-            // The Start tap is a valid autoplay-unlock gesture — resume the
-            // audio rig now so the intro's chime + the town ambient can sound.
+          onNewGame={() => {
+            // The Start tap is a valid autoplay-unlock gesture — resume the audio
+            // rig so the intro's chime + the town ambient can sound.
             resumedRef.current = true;
             void resumeAudio();
+            setSaveConsumed(true);
+            setGame(newGame());
             setShellPhase("intro");
           }}
+          onContinue={
+            saveOffer
+              ? () => {
+                  resumedRef.current = true;
+                  void resumeAudio();
+                  setSaveConsumed(true);
+                  setGame((g) => applySave(g, saveOffer));
+                  setShellPhase("playing"); // skip the intro — jump straight back in
+                }
+              : undefined
+          }
+          onSettings={() => setSplashSettingsOpen(true)}
         />
+        {splashSettingsOpen && (
+          <div
+            style={{ position: "fixed", inset: 0, background: "rgba(20,16,10,0.55)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "24px 12px", zIndex: 60, overflowY: "auto" }}
+            onClick={() => setSplashSettingsOpen(false)}
+          >
+            <div onClick={(e) => e.stopPropagation()}>
+              <SettingsPanel onClose={() => setSplashSettingsOpen(false)} />
+            </div>
+          </div>
+        )}
       </div>
     );
   }

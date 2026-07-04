@@ -15,7 +15,12 @@ import { GooberStage, type Placed } from "../GooberStage.js";
 import { audio, resumeAudio } from "../audio.js";
 
 export interface SplashProps {
-  onStart: () => void;
+  /** Begin a fresh playthrough (→ the intro cutscene → the town). */
+  onNewGame: () => void;
+  /** Load the last save straight into the game — present only when a save exists. */
+  onContinue?: () => void;
+  /** Open the settings panel over the title screen. */
+  onSettings: () => void;
 }
 
 // A single warm, friendly starter goober idling on the splash — s16 matches
@@ -24,7 +29,7 @@ export interface SplashProps {
 // breaking anything, since it never touches game state).
 const SPLASH_TOKEN_ID = "s16";
 
-export function Splash({ onStart }: SplashProps) {
+export function Splash({ onNewGame, onContinue, onSettings }: SplashProps) {
   const [leaving, setLeaving] = useState(false);
   const committed = useRef(false);
 
@@ -46,13 +51,15 @@ export function Splash({ onStart }: SplashProps) {
     return () => audio().stopAmbient();
   }, []);
 
-  const handleStart = () => {
+  // New Game / Continue both leave the splash with a soft fade; Settings opens
+  // its panel over the title (handled by the caller) without leaving.
+  const leaveWith = (action: () => void) => {
     if (committed.current) return;
     committed.current = true;
     audio().playUi("confirm");
     void resumeAudio();
     setLeaving(true);
-    window.setTimeout(onStart, 260);
+    window.setTimeout(action, 260);
   };
 
   return (
@@ -64,8 +71,16 @@ export function Splash({ onStart }: SplashProps) {
           <div className="splash-subtitle">Aldercradle is fading. Weave it back to life.</div>
         </div>
         <div className="actionbar splash-actions">
-          <button className="act primary" onClick={handleStart}>
-            Start →
+          <button className="act primary" onClick={() => leaveWith(onNewGame)}>
+            New Game →
+          </button>
+          {onContinue && (
+            <button className="act bond" onClick={() => leaveWith(onContinue)}>
+              Continue ↺
+            </button>
+          )}
+          <button className="act" onClick={() => { audio().playUi("select"); onSettings(); }}>
+            Settings ⚙
           </button>
         </div>
       </div>

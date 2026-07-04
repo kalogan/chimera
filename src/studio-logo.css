@@ -1,0 +1,145 @@
+/* WOVENWILD studio ident — SVG threads weave into a goober, wordmark warms in.
+   All CSS keyframes (run even in a backgrounded tab); wall-clock timer hands off. */
+.studio-wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: radial-gradient(circle at 50% 42%, #fbf3e2 0%, #efe0c2 58%, #e4d0a8 100%);
+  animation: studioWrapFade 2.9s ease forwards;
+}
+@keyframes studioWrapFade {
+  0% { opacity: 0; }
+  6% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.studio-art {
+  width: min(78vw, 460px);
+  height: auto;
+  max-height: 62vh;
+  display: block;
+}
+
+/* Threads: draw on (stroke-dashoffset), then fade back as the goober forms. */
+.studio-thread {
+  fill: none;
+  stroke: #c9762e;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+  opacity: 0;
+  animation: studioThread 2.9s ease forwards;
+}
+@keyframes studioThread {
+  0% { stroke-dashoffset: 100; opacity: 0; }
+  8% { opacity: 0.85; }
+  42% { stroke-dashoffset: 0; opacity: 0.85; }
+  64% { stroke-dashoffset: 0; opacity: 0.22; }
+  100% { stroke-dashoffset: 0; opacity: 0.12; }
+}
+
+/* Goober: scales/fades in as the threads gather. */
+.studio-goober {
+  transform-box: fill-box;
+  transform-origin: 200px 158px;
+  opacity: 0;
+  animation: studioGoober 2.9s ease forwards;
+}
+@keyframes studioGoober {
+  0% { opacity: 0; transform: scale(0.35); }
+  32% { opacity: 0; transform: scale(0.5); }
+  52% { opacity: 1; transform: scale(1.05); }
+  60% { transform: scale(1); }
+  88% { opacity: 1; }
+  100% { opacity: 1; transform: scale(1); }
+}
+.studio-body { fill: #6fb98f; stroke: #4e9a70; stroke-width: 2; }
+.studio-eye { fill: #1a1420; opacity: 0; animation: studioEye 2.9s ease forwards; }
+.studio-glint { fill: #fff; opacity: 0; animation: studioEye 2.9s ease forwards; }
+@keyframes studioEye {
+  0% { opacity: 0; }
+  60% { opacity: 0; }
+  70% { opacity: 1; }
+  100% { opacity: 1; }
+}
+
+.studio-brand {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 19%;
+  text-align: center;
+  pointer-events: none;
+}
+.studio-wordmark {
+  font-size: clamp(30px, 10vw, 60px);
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  color: #c9762e;
+  text-shadow: 0 2px 0 rgba(255, 255, 255, 0.6), 0 8px 22px rgba(43, 36, 64, 0.18);
+  opacity: 0;
+  animation: studioWord 2.9s ease forwards;
+}
+@keyframes studioWord {
+  0% { opacity: 0; transform: translateY(12px); }
+  58% { opacity: 0; transform: translateY(12px); }
+  76% { opacity: 1; transform: none; }
+  100% { opacity: 1; }
+}
+.studio-tag {
+  margin-top: 8px;
+  font-size: clamp(11px, 3.4vw, 15px);
+  letter-spacing: 0.5em;
+  text-transform: uppercase;
+  color: #8a6a3f;
+  opacity: 0;
+  animation: studioTag 2.9s ease forwards;
+}
+@keyframes studioTag {
+  0% { opacity: 0; }
+  68% { opacity: 0; }
+  84% { opacity: 0.75; }
+  100% { opacity: 0.75; }
+}
+
+.studio-skip {
+  position: absolute;
+  right: calc(16px + env(safe-area-inset-right, 0px));
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  min-height: 40px;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  background: rgba(247, 239, 226, 0.7);
+  color: #6b4a30;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+
+/* Reduced motion: drop the draw-on + scale/translate, keep gentle fades. */
+.studio-wrap.reduced .studio-thread {
+  stroke-dashoffset: 0;
+  animation: studioThreadReduced 2.9s ease forwards;
+}
+@keyframes studioThreadReduced {
+  0% { opacity: 0; }
+  20% { opacity: 0.2; }
+  100% { opacity: 0.12; }
+}
+.studio-wrap.reduced .studio-goober {
+  transform: none;
+  animation: studioGooberReduced 2.9s ease forwards;
+}
+@keyframes studioGooberReduced {
+  0% { opacity: 0; }
+  30% { opacity: 1; }
+  100% { opacity: 1; }
+}
+.studio-wrap.reduced .studio-wordmark { transform: none; }
