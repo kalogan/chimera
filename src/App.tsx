@@ -14,7 +14,7 @@ import { PauseOverlay } from "./shell/pause.js";
 import { SettingsPanel } from "./shell/settings.js";
 import { HudBar } from "./shell/hud.js";
 import { itemDef, shopFor, SELL_FRACTION } from "game-kit/economy";
-import { ZONE_LABELS } from "./zone.js";
+import { ZONE_LABELS, GUARDIAN_TITLE } from "./zone.js";
 import { hasSave, loadGame, saveGame } from "./save.js";
 import { TownScene } from "./town-scene.js";
 import { TownDialogue } from "./town-dialogue.js";
@@ -22,9 +22,11 @@ import {
   villagerById,
   TOWN_DIRECTION_DELTA,
   TOWN_PORTALS,
+  TOWN_DORMANT_PADS,
   type TownAction,
   type TownDirection,
 } from "./town.js";
+import { WORLDS, isHealed } from "./worldtree.js";
 import { TradeScreen } from "./trade.js";
 import { progressOf } from "game-kit/quest";
 import {
@@ -62,6 +64,12 @@ import {
   offeredQuests,
   acceptGameQuest,
   GAME_QUESTS,
+  openAldercradle,
+  leaveAldercradle,
+  treeHealedCount,
+  treeIsWhole,
+  openFinale,
+  leaveFinale,
   type GameState,
 } from "./game.js";
 
@@ -175,6 +183,8 @@ export function App() {
       {game.screen === "trade" && (
         <TradeScreen game={game} setGame={setGame} onBack={() => setGame({ ...game, screen: "town" })} />
       )}
+      {game.screen === "aldercradle" && <AldercradleScreen game={game} setGame={setGame} />}
+      {game.screen === "finale" && <FinaleScreen game={game} setGame={setGame} />}
       {paused && (
         <PauseOverlay
           onResume={() => setPaused(false)}
@@ -457,7 +467,11 @@ const TOWN_KEY_DIR: Record<string, TownDirection> = {
 function TownScreen({ game, setGame, onPause, onSettings, paused }: ScreenProps & { onPause: () => void; onSettings: () => void; paused: boolean }) {
   const [nearId, setNearId] = useState<string | null>(null);
   const [nearHome, setNearHome] = useState(false);
+  const [nearTree, setNearTree] = useState(false);
   const [dialogueVillagerId, setDialogueVillagerId] = useState<string | null>(null);
+  // A soft "still sleeps" hint shown briefly after stepping onto a dormant
+  // future-world pad — cleared after a short beat (it's flavour, not a modal).
+  const [dormantHint, setDormantHint] = useState<string | null>(null);
   const lastStep = useRef(0);
   // Locked while a pad/Home transition plays its short confirm beat — mirrors
   // ZoneScreen's `busy` gate so a held key can't double-fire the travel.
@@ -494,11 +508,24 @@ function TownScreen({ game, setGame, onPause, onSettings, paused }: ScreenProps 
       busy.current = true;
       audio().playUi("confirm");
       window.setTimeout(() => { busy.current = false; setGame(openHome(g2)); }, 220);
+    } else if (pending?.kind === "tree") {
+      busy.current = true;
+      audio().playUi("confirm");
+      window.setTimeout(() => { busy.current = false; setGame(openAldercradle(g2)); }, 220);
+    } else if (pending?.kind === "dormant") {
+      audio().playUi("back");
+      setDormantHint(pending.label);
+      window.setTimeout(() => setDormantHint(null), 1800);
     }
   };
 
   const tryTalk = () => {
     if (paused || busy.current) return;
+    if (nearTree) {
+      audio().playUi("confirm");
+      setGame(openAldercradle(game));
+      return;
+    }
     if (nearHome) {
       audio().playUi("confirm");
       setGame(openHome(game));
@@ -520,7 +547,7 @@ function TownScreen({ game, setGame, onPause, onSettings, paused }: ScreenProps 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [game, paused, nearId, nearHome, dialogueVillagerId]);
+  }, [game, paused, nearId, nearHome, nearTree, dialogueVillagerId]);
 
   const villager = dialogueVillagerId ? villagerById(dialogueVillagerId) : undefined;
 
@@ -546,23 +573,31 @@ function TownScreen({ game, setGame, onPause, onSettings, paused }: ScreenProps 
       <TownScene
         playerTile={game.townPlayerTile}
         portals={unlockedPortals}
+        dormantPads={TOWN_DORMANT_PADS}
+        healedCount={treeHealedCount(game)}
         onMove={onStep}
         onApproach={setNearId}
         onApproachHome={setNearHome}
+        onApproachTree={setNearTree}
         showApproachHint={!dialogueVillagerId}
       />
       <div className="overlay">
         <HudBar
           title="CHIMERA · The Town"
-          subtitle="Walk to a glowing pad to travel · E at the house for Home · E at a villager to talk."
-          dexText={`◈ ${game.economy.gold} · Dex ${dexTotal(game)} · Party ${game.roster.party.length}/3`}
+          subtitle="Walk to a glowing pad to travel · E at the Aldercradle, the house, or a villager."
+          dexText={`◈ ${game.economy.gold} · Dex ${dexTotal(game)} · Party ${game.roster.party.length}/3 · 🌱${treeHealedCount(game)}/8`}
           onPause={onPause} onSettings={onSettings}
         />
         <QuestLog game={game} />
+        {dormantHint && (
+          <div className="town-approach-hint" style={{ bottom: "22%" }}>
+            {dormantHint} still sleeps, lost to the Fading…
+          </div>
+        )}
         {!dialogueVillagerId && (
           <>
             <div className="hint" style={{ position: "absolute", bottom: 116, left: 0, right: 0, textAlign: "center" }}>
-              ↑↓←→ / WASD to walk · step onto a pad to travel · E at the house or a villager
+              ↑↓←→ / WASD to walk · step onto a pad to travel · E at the Aldercradle, the house, or a villager
             </div>
             <div className="dpad">
               <button className="pad up" onClick={() => onStep("up")}>▲</button>
@@ -572,11 +607,11 @@ function TownScreen({ game, setGame, onPause, onSettings, paused }: ScreenProps 
             </div>
             <button
               className="act bond"
-              disabled={!nearId && !nearHome}
+              disabled={!nearId && !nearHome && !nearTree}
               style={{ position: "absolute", right: 16, bottom: 16 }}
               onClick={tryTalk}
             >
-              {nearHome ? "Enter Home (E)" : "Talk (E)"}
+              {nearTree ? "Aldercradle (E)" : nearHome ? "Enter Home (E)" : "Talk (E)"}
             </button>
           </>
         )}
@@ -590,6 +625,99 @@ function TownScreen({ game, setGame, onPause, onSettings, paused }: ScreenProps 
           onAcceptQuest={(id) => { audio().playUi("confirm"); setGame(acceptGameQuest(game, id)); }}
         />
       )}
+    </>
+  );
+}
+
+// ── The Aldercradle (the world-tree panel — 8 worlds, X/8 Heartseeds) ───────
+function AldercradleScreen({ game, setGame }: ScreenProps) {
+  const healed = treeHealedCount(game);
+  const whole = treeIsWhole(game);
+  useEffect(() => {
+    audio().startAmbient("town-plaza");
+    return () => audio().stopAmbient();
+  }, []);
+  return (
+    <>
+      <GooberStage placed={[]} cameraPos={[0, 5, 20]} fov={30} bg="#f4e3c4" ground="#cfe6a8" />
+      <div className="overlay">
+        <div className="banner">
+          <div>
+            <div className="title">The Aldercradle</div>
+            <div className="subtitle">
+              The world-tree at the heart of the town — every Heartseed you recover coaxes it a little further from the Fading.
+            </div>
+          </div>
+          <div className="dex">🌱 {healed} / 8 Heartseeds</div>
+        </div>
+        <div className="shop-list">
+          {WORLDS.map((w) => {
+            const done = isHealed(game.heartseeds, w.id);
+            const built = w.zoneId !== null;
+            return (
+              <div key={w.id} className="shop-row" style={{ opacity: built ? 1 : 0.6 }}>
+                <div className="shop-info">
+                  <div className="shop-name">
+                    {done ? "🌟 " : built ? "🗡️ " : "💤 "}
+                    {w.label}
+                  </div>
+                  <div className="hint">
+                    {done
+                      ? `${w.seedName} recovered — this world is healed.`
+                      : built
+                        ? "A Guardian still awaits, deep in this world."
+                        : "Still lost to the Fading — no path there yet."}
+                  </div>
+                  <div className="hint" style={{ fontStyle: "italic", opacity: 0.85 }}>{w.lore}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="actionbar">
+          <button className="act" onClick={() => { audio().playUi("back"); setGame(leaveAldercradle(game)); }}>
+            ← Back to town
+          </button>
+          {whole && (
+            <button
+              className="act primary"
+              onClick={() => { audio().playUi("confirm"); setGame(openFinale(game)); }}
+            >
+              The tree is whole ✦
+            </button>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── The finale (8/8 Heartseeds — Aldercradle blooms whole) ─────────────────
+function FinaleScreen({ game, setGame }: ScreenProps) {
+  useEffect(() => {
+    audio().playNewborn();
+  }, []);
+  return (
+    <>
+      <GooberStage placed={[]} cameraPos={[0, 5, 18]} fov={30} bg="#f9ecc9" ground="#cfe6a8" />
+      <div className="overlay">
+        <div className="modal">
+          <div className="panel">
+            <h2>The Aldercradle blooms whole</h2>
+            <div className="reveal-name">Every Heartseed has come home.</div>
+            <div className="hint" style={{ marginTop: 10, maxWidth: 420, lineHeight: 1.5 }}>
+              Eight worlds, eight Guardians, eight quiet acts of trust — and the old tree at the
+              heart of the town remembers, all at once, what it means to be green. The Fading
+              hasn't ended everywhere. But here, tonight, it has lost.
+            </div>
+          </div>
+        </div>
+        <div className="actionbar">
+          <button className="act primary" onClick={() => { audio().playUi("confirm"); setGame(leaveFinale(game)); }}>
+            Return to the Aldercradle →
+          </button>
+        </div>
+      </div>
     </>
   );
 }
@@ -632,6 +760,7 @@ function BattleScreen({ game, setGame, onPause, onSettings }: ScreenProps & { on
   const actor = activeActor(b);
   const placed = battlePlaced(b);
   const rival = game.rivalBattleId ? game.rivals.find((p) => p.rival.id === game.rivalBattleId) : undefined;
+  const guardianTitle = game.guardianBattleWorldId && game.zone ? GUARDIAN_TITLE[game.zone.descriptor.id] : undefined;
 
   const doAction = (act: Parameters<typeof stepBattle>[1]) => {
     audio().playUi("select");
@@ -654,12 +783,18 @@ function BattleScreen({ game, setGame, onPause, onSettings }: ScreenProps & { on
 
   return (
     <>
-      <GooberStage placed={placed} cameraPos={[3, 7, 21]} fov={32} bg="#a9d9c0" ground="#cfe6a8" />
+      <GooberStage placed={placed} cameraPos={[3, 7, 21]} fov={32} bg={guardianTitle ? "#d9b96a" : "#a9d9c0"} ground="#cfe6a8" />
       <div className="overlay">
         <HudBar
-          title={rival ? `Rival battle · ${rival.rival.name}` : "Encounter"}
-          subtitle={rival ? `${rival.rival.name} challenges you with the team their journey has built.` : undefined}
-          dexText={game.outcome ? game.outcome.toUpperCase() : b.phase}
+          title={guardianTitle ? `⚔ ${guardianTitle}` : rival ? `Rival battle · ${rival.rival.name}` : "Encounter"}
+          subtitle={
+            guardianTitle
+              ? "The world's Guardian — win to recover this world's Heartseed."
+              : rival
+                ? `${rival.rival.name} challenges you with the team their journey has built.`
+                : undefined
+          }
+          dexText={game.outcome ? game.outcome.toUpperCase().replace("-", " ") : b.phase}
           onPause={onPause} onSettings={onSettings}
         />
         <div className="cards enemy">
@@ -671,6 +806,16 @@ function BattleScreen({ game, setGame, onPause, onSettings }: ScreenProps & { on
         <div className="log">
           {game.log.map((l, i) => <div key={i}>{l}</div>)}
         </div>
+        {game.outcome === "guardian-win" && (
+          <div
+            className="banner"
+            style={{ top: "auto", bottom: 74, background: "linear-gradient(transparent, rgba(231,200,106,0.35))", textAlign: "center", justifyContent: "center" }}
+          >
+            <div className="title" style={{ color: "var(--warm-deep)" }}>
+              {guardianTitle} falls — the world's Heartseed is recovered!
+            </div>
+          </div>
+        )}
         <div className="actionbar">
           {game.outcome ? (
             <button className="act primary" onClick={() => setGame(game.zone ? returnToZone(game) : leaveBattle(game))}>
@@ -696,7 +841,12 @@ function BattleScreen({ game, setGame, onPause, onSettings }: ScreenProps & { on
                     {s.name} <small>({s.mpCost})</small>
                   </button>
                 ))}
-                <button className="act bond" onClick={() => doAction({ type: "scout", targetId: target })}>Scout 🤝</button>
+                {/* A Guardian is a boss, not a companion to befriend — Scout is
+                    hidden for a Guardian fight so victory is the only path to
+                    its Heartseed. */}
+                {!guardianTitle && (
+                  <button className="act bond" onClick={() => doAction({ type: "scout", targetId: target })}>Scout 🤝</button>
+                )}
                 <button className="act" disabled={items.length === 0} onClick={() => setItemMenu(true)}>Items 🎒</button>
                 <button className="act" onClick={() => doAction({ type: "defend" })}>Defend</button>
                 <button className="act" onClick={() => doAction({ type: "flee" })}>Flee</button>
