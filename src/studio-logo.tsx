@@ -8,13 +8,27 @@
  * else warms up, and CSS keyframes keep animating even in a backgrounded tab.
  * The hand-off to the splash is driven by a wall-clock `setTimeout` (not rAF),
  * so it always advances on time; a tap anywhere skips it early.
+ *
+ * SMILE CUE: a soft, gentle twinkle fires as the goober's eyes appear (the
+ * `studioEye` keyframe in studio-logo.css goes 0 -> 1 opacity across 60%-70% of
+ * the 2.9s timeline, i.e. ~1.74s-2.03s in) — a tiny "aww" the instant the face
+ * reads as alive. Fired once via a guarded wall-clock setTimeout (same reasoning
+ * as the finish() hand-off: advances on time even backgrounded). AUTOPLAY
+ * CAVEAT: on a stone-cold first load the AudioContext is still suspended (no
+ * user gesture has happened yet), so this cue is silent that one time — that's
+ * unavoidable and fine; it plays normally on any later visit once audio has
+ * been unlocked (e.g. the studio ident replaying after a return to the title).
  */
 import { useEffect, useRef } from "react";
 import { getReducedMotion } from "./quality.js";
+import { audio } from "./audio.js";
 import "./studio-logo.css";
 
 const BRAND = "WOVENWILD";
 const DURATION_MS = 2900;
+/** Matches studio-logo.css's studioEye keyframe (opacity 0->1 over 60%-70% of
+ *  the 2.9s timeline) — fire the smile cue right as the eyes become visible. */
+const SMILE_CUE_MS = 1850;
 
 // Six thread strands sweeping in from the edges to the goober's center — drawn
 // on (stroke-dashoffset) then fading as the goober forms. Slight curves so they
@@ -41,6 +55,21 @@ export function StudioLogo({ onDone }: { onDone: () => void }) {
     const t = window.setTimeout(finish, DURATION_MS);
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // The smile cue — a soft twinkle timed to the eyes appearing (see the SMILE
+  // CUE note above). Independent timeout from the finish() hand-off above so
+  // it never affects the ident's duration or visuals; guarded so it can only
+  // ever fire once (StrictMode double-effects, re-renders, etc). Safe no-op if
+  // the AudioContext is still suspended (cold first load — see file header).
+  const smiledRef = useRef(false);
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      if (smiledRef.current) return;
+      smiledRef.current = true;
+      audio().playUi("confirm");
+    }, SMILE_CUE_MS);
+    return () => window.clearTimeout(t);
   }, []);
 
   const reduced = getReducedMotion();
