@@ -53,6 +53,7 @@ import {
   updateRival,
   type PlacedRival,
 } from "./rivals.js";
+import { saveGame, type SaveData } from "./save.js";
 
 export type Screen = "party" | "zone" | "battle" | "cradle" | "newborn" | "shop";
 
@@ -127,6 +128,37 @@ export function newGame(): GameState {
     economy: createEconomy({ gold: 120, items: { "healing-herb": 2 } }),
     rivals: makeRivals(),
     rivalBattleId: null,
+  };
+}
+
+/**
+ * Restore a fresh game to the Sanctuary using a loaded `SaveData` — roster,
+ * economy, rivals (their full off-screen sim, so history/dex/roster all
+ * resume exactly where they left off), rng seeds, and unlocked zones are
+ * taken from the save; everything transient (screen/battle/zone/etc.) comes
+ * from a fresh `newGame()` baseline so a restored game can never resume
+ * mid-battle or mid-zone-transition.
+ */
+export function applySave(g: GameState, data: SaveData): GameState {
+  return {
+    ...g,
+    screen: "party",
+    battle: null,
+    wildToken: null,
+    log: [],
+    outcome: null,
+    cradlePick: [],
+    newborn: null,
+    lastBreed: null,
+    zone: null,
+    zoneReturnRoamerId: null,
+    rivalBattleId: null,
+    roster: data.roster,
+    economy: data.economy,
+    rivals: data.rivals,
+    encounterSeed: data.encounterSeed,
+    breedSeed: data.breedSeed,
+    unlockedZones: data.unlockedZones.length > 0 ? data.unlockedZones : ["meadowmere"],
   };
 }
 
@@ -357,9 +389,11 @@ export function travelPortal(g: GameState, to: string): GameState {
   return enterZone({ ...g, screen: "party", zone: null, zoneReturnRoamerId: null }, to);
 }
 
-/** Step out of the overworld back to the Sanctuary hub (via a portal). */
+/** Step out of the overworld back to the Sanctuary hub (via a portal). Auto-saves. */
 export function exitZone(g: GameState): GameState {
-  return { ...g, screen: "party", zone: null, zoneReturnRoamerId: null, log: [] };
+  const next: GameState = { ...g, screen: "party", zone: null, zoneReturnRoamerId: null, log: [] };
+  saveGame(next);
+  return next;
 }
 
 /** The combatant whose turn it is (null if the battle is over / not choosing). */
@@ -460,9 +494,9 @@ export function stepBattle(
   };
 }
 
-/** Leave the battle back to the sanctuary, bumping the encounter seed. */
+/** Leave the battle back to the sanctuary, bumping the encounter seed. Auto-saves. */
 export function leaveBattle(g: GameState): GameState {
-  return {
+  const next: GameState = {
     ...g,
     screen: "party",
     battle: null,
@@ -472,6 +506,8 @@ export function leaveBattle(g: GameState): GameState {
     encounterSeed: g.encounterSeed + 1,
     log: [],
   };
+  saveGame(next);
+  return next;
 }
 
 export function openCradle(g: GameState): GameState {
@@ -495,7 +531,7 @@ export function breedPicked(g: GameState): GameState {
   const result = breed(creatureFromToken(a), creatureFromToken(b), createRng(g.breedSeed));
   const newborn = creatureFromToken(result.childToken);
   const roster = addCreature(g.roster, result.childToken, { toStorage: true });
-  return {
+  const next: GameState = {
     ...g,
     roster,
     screen: "newborn",
@@ -503,6 +539,8 @@ export function breedPicked(g: GameState): GameState {
     lastBreed: result,
     breedSeed: g.breedSeed + 1,
   };
+  saveGame(next); // a new life is a natural auto-save beat
+  return next;
 }
 
 export function backToParty(g: GameState): GameState {

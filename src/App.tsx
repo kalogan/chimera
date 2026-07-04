@@ -11,8 +11,10 @@ import { PauseOverlay } from "./shell/pause.js";
 import { HudBar } from "./shell/hud.js";
 import { itemDef, shopFor, SELL_FRACTION } from "game-kit/economy";
 import { ZONE_LABELS } from "./zone.js";
+import { hasSave, loadGame } from "./save.js";
 import {
   newGame,
+  applySave,
   partyCreatures,
   collectionCreatures,
   dexTotal,
@@ -50,6 +52,13 @@ export function App() {
   const [shellPhase, setShellPhase] = useState<ShellPhase>("splash");
   const [paused, setPaused] = useState(false);
   const resumedRef = useRef(false);
+  // A save the player hasn't yet chosen to load/dismiss this session. Splash
+  // (shell/splash.tsx) is NOT ours to edit and always starts a fresh game —
+  // so "Continue" is offered as a Sanctuary affordance instead: computed once
+  // at mount, cleared the moment the player either loads it or starts playing
+  // for real (any transition away from a freshly-started Sanctuary).
+  const [saveOffer] = useState(() => (hasSave() ? loadGame() : null));
+  const [saveConsumed, setSaveConsumed] = useState(false);
 
   // Unlock procedural audio on the first user gesture (browser autoplay policy).
   const unlock = () => {
@@ -87,9 +96,30 @@ export function App() {
     );
   }
 
+  const canContinue = !saveConsumed && !!saveOffer;
+  const doContinue = () => {
+    if (!saveOffer) return;
+    setSaveConsumed(true);
+    audio().playUi("confirm");
+    setGame((g) => applySave(g, saveOffer));
+  };
+  // Diving into ANY Sanctuary action without loading retires the offer — it
+  // should only ever appear on a truly fresh boot, never linger once the
+  // player has started a fresh playthrough for real.
+  const dismissSaveOffer = () => setSaveConsumed(true);
+
   return (
     <div onPointerDown={unlock} style={{ position: "fixed", inset: 0 }}>
-      {game.screen === "party" && <PartyScreen game={game} setGame={setGame} onPause={() => setPaused(true)} />}
+      {game.screen === "party" && (
+        <PartyScreen
+          game={game}
+          setGame={setGame}
+          onPause={() => setPaused(true)}
+          canContinue={canContinue}
+          onContinue={doContinue}
+          onDismissContinue={dismissSaveOffer}
+        />
+      )}
       {game.screen === "zone" && <ZoneScreen game={game} setGame={setGame} onPause={() => setPaused(true)} paused={paused} />}
       {game.screen === "battle" && <BattleScreen game={game} setGame={setGame} onPause={() => setPaused(true)} />}
       {game.screen === "cradle" && <CradleScreen game={game} setGame={setGame} />}
@@ -112,7 +142,19 @@ export function App() {
 type ScreenProps = { game: GameState; setGame: (g: GameState) => void };
 
 // ── Sanctuary / party ─────────────────────────────────────────────────────────
-function PartyScreen({ game, setGame, onPause }: ScreenProps & { onPause: () => void }) {
+function PartyScreen({
+  game,
+  setGame,
+  onPause,
+  canContinue,
+  onContinue,
+  onDismissContinue,
+}: ScreenProps & {
+  onPause: () => void;
+  canContinue?: boolean;
+  onContinue?: () => void;
+  onDismissContinue?: () => void;
+}) {
   const party = useMemo(() => partyCreatures(game), [game]);
   const placed: Placed[] = party.map((c, i) => ({
     id: c.token.id,
@@ -127,6 +169,7 @@ function PartyScreen({ game, setGame, onPause }: ScreenProps & { onPause: () => 
     return () => audio().stopAmbient();
   }, []);
   const goTo = (zoneId: string) => {
+    onDismissContinue?.();
     audio().playUi("confirm");
     setGame(enterZone(game, zoneId));
   };
@@ -142,6 +185,11 @@ function PartyScreen({ game, setGame, onPause }: ScreenProps & { onPause: () => 
           onPause={onPause}
         />
         <div className="actionbar">
+          {canContinue && (
+            <button className="act bond" onClick={onContinue}>
+              Continue (load last save) ↺
+            </button>
+          )}
           {!zonePicker ? (
             <button className="act primary" onClick={() => setZonePicker(true)}>
               Explore →
@@ -154,10 +202,10 @@ function PartyScreen({ game, setGame, onPause }: ScreenProps & { onPause: () => 
             ))
           )}
           <button className="act bond" disabled={game.roster.party.length + game.roster.storage.length < 2}
-            onClick={() => { audio().playUi("confirm"); setGame(openCradle(game)); }}>
+            onClick={() => { onDismissContinue?.(); audio().playUi("confirm"); setGame(openCradle(game)); }}>
             The Cradle (breed)
           </button>
-          <button className="act" onClick={() => { audio().playUi("confirm"); setGame(openShop(game)); }}>
+          <button className="act" onClick={() => { onDismissContinue?.(); audio().playUi("confirm"); setGame(openShop(game)); }}>
             The Market ◈
           </button>
         </div>
