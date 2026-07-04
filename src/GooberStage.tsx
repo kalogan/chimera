@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from "react";
-import { Canvas } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import type { GooberSpec } from "game-kit/creature";
 import { Goober } from "./Goober.js";
@@ -114,6 +114,17 @@ function PlacedGoober({ p }: { p: Placed }) {
 
 function noop(): void {}
 
+/** Aim the (orbit-free) stage camera at (0, y, 0). Used by callers that place a
+ *  single goober RAISED above the ground (e.g. the Dex preview, so it hovers
+ *  above the grass instead of its lower half sinking through the y=0 plane) and
+ *  want it stay framed/centered. Every other caller omits `targetY` and keeps the
+ *  default framing untouched. */
+function CamLookAt({ y }: { y: number }) {
+  const camera = useThree((s) => s.camera);
+  useFrame(() => camera.lookAt(0, y, 0));
+  return null;
+}
+
 // A framed, orbit-free 2.5D stage (sidesteps GYRE's camera pain): a fixed camera
 // looks at a cozy meadow; goobers stand where placed. Reused for the party lineup,
 // the battle field (two facing rows), and the breeding reveal (a single newborn).
@@ -125,12 +136,16 @@ export function GooberStage({
   ground = "#bfe39a",
   palette = STAGE_PALETTE,
   vfx,
+  targetY,
 }: {
   placed: Placed[];
   cameraPos?: [number, number, number];
   fov?: number;
   bg?: string;
   ground?: string;
+  /** Optional camera look-at height (0, targetY, 0) — for a single raised goober
+   *  (Dex preview). Omitted by every other caller (default framing unchanged). */
+  targetY?: number;
   /** Sky/fog/light tint — defaults to the stage palette; pass ZONE_PALETTE or a
    * custom EnvPalette to recolour battle vs. party vs. reveal moments. */
   palette?: EnvPalette;
@@ -144,6 +159,7 @@ export function GooberStage({
   return (
     <Canvas className="stage" camera={{ position: cameraPos, fov }} shadows={false} dpr={[1, getQuality().dprCap]}>
       <ResponsiveFov baseFov={fov} />
+      {targetY !== undefined && <CamLookAt y={targetY} />}
       <color attach="background" args={[bg]} />
       <GooberEnv palette={palette} />
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>

@@ -134,9 +134,10 @@ function DexDetails({ row }: { row: DexRow }) {
     <div className="dex-details-body">
       <div className="dex-details-stage">
         <GooberStage
-          placed={[{ id: creature.token.id, spec: creature.gooberSpec, position: [0, 0, 0] }]}
+          placed={[{ id: creature.token.id, spec: creature.gooberSpec, position: [0, 2.2, 0] }]}
           cameraPos={[0, 3, 9]}
           fov={32}
+          targetY={2.2}
         />
         {locked && <div className="dex-stage-veil" aria-hidden />}
       </div>

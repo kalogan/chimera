@@ -25,9 +25,14 @@ import { audio } from "./audio.js";
 import "./studio-logo.css";
 
 const BRAND = "WOVENWILD";
-const DURATION_MS = 2900;
-/** Matches studio-logo.css's studioEye keyframe (opacity 0->1 over 60%-70% of
- *  the 2.9s timeline) — fire the smile cue right as the eyes become visible. */
+// Total ident time. The CONTENT animations (threads/goober/eyes/wordmark) finish
+// at ~2.9s and hold (CSS `forwards`); the extra ~2s here is a deliberate LINGER
+// on the fully-formed, smiling goober before the wrap fades out (studio-logo.css's
+// `.studio-wrap` animation runs the same 4.9s and does the fade-out at the end).
+const DURATION_MS = 4900;
+/** Matches studio-logo.css's studioEye keyframe (eyes fade in over 60%-70% of the
+ *  CONTENT timeline, ~1.74s-2.03s) — fire the delightful "smile" chime right as
+ *  the face reads as alive. */
 const SMILE_CUE_MS = 1850;
 
 // Six thread strands sweeping in from the edges to the goober's center — drawn
@@ -67,7 +72,10 @@ export function StudioLogo({ onDone }: { onDone: () => void }) {
     const t = window.setTimeout(() => {
       if (smiledRef.current) return;
       smiledRef.current = true;
-      audio().playUi("confirm");
+      // A delightful "new life" chime — the same warm reveal flourish the game
+      // plays when a goober is woven into being. Fitting for the ident's goober
+      // smiling into existence, and far nicer than a plain UI tick.
+      audio().playNewborn();
     }, SMILE_CUE_MS);
     return () => window.clearTimeout(t);
   }, []);

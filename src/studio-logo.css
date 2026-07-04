@@ -13,7 +13,10 @@
   justify-content: center;
   overflow: hidden;
   background: radial-gradient(circle at 50% 42%, #fbf3e2 0%, #efe0c2 58%, #e4d0a8 100%);
-  animation: studioWrapFade 2.9s ease forwards;
+  /* 4.9s = the ~2.9s content build + a ~2s LINGER on the fully-formed goober
+     before the fade-out (the content animations below stay 2.9s and hold via
+     `forwards`, so only this wrap runs the extra time + does the exit fade). */
+  animation: studioWrapFade 4.9s ease forwards;
 }
 @keyframes studioWrapFade {
   0% { opacity: 0; }
