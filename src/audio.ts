@@ -1,4 +1,4 @@
-import { createAudioManager, type AudioManager } from "game-kit/audio";
+import { createAudioManager, type AudioManager, type AudioRecipe } from "game-kit/audio";
 import { createSpatialAudio, type SpatialAudio } from "game-kit/spatial-audio";
 
 // One shared procedural-audio rig for the whole game. ALL sound is synthesized
@@ -29,4 +29,16 @@ export async function resumeAudio(): Promise<void> {
   } catch {
     // No AudioContext (headless / blocked) — degrade silently.
   }
+}
+
+/**
+ * Play an arbitrary AudioRecipe on the shared "music" bus (so it obeys the
+ * settings panel's Music slider, same as the ambient pad / newborn chime).
+ * SpatialAudio's own `playAt` is fixed to the sfx bus, so callers composing a
+ * genuine MUSIC cue (e.g. the splash melody) reach the manager directly here.
+ * No-op / never throws when the AudioManager has no context yet (see audio.ts
+ * header — safe to call before resumeAudio() resolves).
+ */
+export function playMusicRecipe(recipe: AudioRecipe, gain?: number): void {
+  ensure().mgr.playRecipe(recipe, { channel: "music", gain });
 }
