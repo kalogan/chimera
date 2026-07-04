@@ -22,9 +22,10 @@ import { Billboard } from "game-kit/billboard/r3f";
 import { type GooberSpec } from "game-kit/creature";
 import { Goober } from "./Goober.js";
 import { specForSeed } from "./goober-cache.js";
+import { Villager } from "./villager-npc.js";
 import { ContactBlob, GooberEnv, ZONE_PALETTE } from "./env.js";
 import { ResponsiveFov } from "./responsive-cam.js";
-import { getQuality } from "./quality.js";
+import { getQuality, getReducedMotion } from "./quality.js";
 import {
   TownBuilding,
   MarketStall,
@@ -178,6 +179,90 @@ function Actor({
       <Billboard>
         <Goober spec={spec} position={[0, 0, 0]} seed={seed} sizeScale={GOOBER_SIZE} />
       </Billboard>
+    </group>
+  );
+}
+
+/** A soft floating "…" speech-bubble marker hovering over a villager's head —
+ *  the "talkable" affordance so the player spots who they can walk up to
+ *  before they're adjacent. A gentle up/down float + fade, reduced-motion-
+ *  gated (holds a static soft glow when motion is off, never disappears). */
+function TalkBubble({ tint }: { tint: string }) {
+  const grp = useRef<THREE.Group>(null);
+  const reduced = useRef(getReducedMotion());
+  const phase = useRef(Math.random() * Math.PI * 2);
+  useFrame((state) => {
+    if (!grp.current) return;
+    if (reduced.current) {
+      grp.current.position.y = 1.28;
+      return;
+    }
+    const t = state.clock.elapsedTime;
+    grp.current.position.y = 1.28 + Math.sin(t * 1.6 + phase.current) * 0.06;
+  });
+  return (
+    <group ref={grp} position={[0, 1.28, 0]}>
+      <Billboard>
+        <mesh position={[-0.11, 0, 0]}>
+          <circleGeometry args={[0.05, 10]} />
+          <meshBasicMaterial color="#f7efe2" transparent opacity={0.92} />
+        </mesh>
+        <mesh position={[0, 0.015, 0]}>
+          <circleGeometry args={[0.06, 10]} />
+          <meshBasicMaterial color="#f7efe2" transparent opacity={0.92} />
+        </mesh>
+        <mesh position={[0.11, 0, 0]}>
+          <circleGeometry args={[0.05, 10]} />
+          <meshBasicMaterial color="#f7efe2" transparent opacity={0.92} />
+        </mesh>
+        <mesh position={[-0.11, 0, -0.001]}>
+          <circleGeometry args={[0.022, 8]} />
+          <meshBasicMaterial color={tint} />
+        </mesh>
+        <mesh position={[0, 0.015, -0.001]}>
+          <circleGeometry args={[0.026, 8]} />
+          <meshBasicMaterial color={tint} />
+        </mesh>
+        <mesh position={[0.11, 0, -0.001]}>
+          <circleGeometry args={[0.022, 8]} />
+          <meshBasicMaterial color={tint} />
+        </mesh>
+      </Billboard>
+    </group>
+  );
+}
+
+/** A villager standing on their tile — the new person-shaped `Villager` model
+ *  (idle-bobbing in place, no hop-tween since villagers never move) plus the
+ *  floating talk-bubble affordance above their head and a soft tinted ground
+ *  ring (kept from the old Actor look) so they still read as "this one's
+ *  interactive" at a glance across the plaza. */
+function VillagerActor({
+  role,
+  tx,
+  ty,
+  w,
+  h,
+  tint,
+}: {
+  role: TownVillager["role"];
+  tx: number;
+  ty: number;
+  w: number;
+  h: number;
+  tint: string;
+}) {
+  const [wx, , wz] = worldOf(tx, ty, w, h);
+  return (
+    <group position={[wx, 0, wz]}>
+      <group position={[0, 0.03, 0]}>
+        <mesh rotation={[-Math.PI / 2, 0, 0]}>
+          <circleGeometry args={[GOOBER_SIZE * 1.9, 24]} />
+          <meshBasicMaterial color={tint} transparent opacity={0.3} depthWrite={false} />
+        </mesh>
+      </group>
+      <Villager role={role} tint={tint} position={[0, 0, 0]} scale={1} />
+      <TalkBubble tint={tint} />
     </group>
   );
 }
@@ -409,15 +494,14 @@ export function TownScene({
           seed={99}
           posOut={playerPos}
         />
-        {villagers.map((v, i) => (
-          <Actor
+        {villagers.map((v) => (
+          <VillagerActor
             key={v.id}
-            spec={specForSeed(v.id)}
+            role={v.role}
             tx={v.tile[0]}
             ty={v.tile[1]}
             w={w}
             h={h}
-            seed={v.id.charCodeAt(v.id.length - 1) * 7 + i}
             tint={v.tint ?? "#e8a84c"}
           />
         ))}
