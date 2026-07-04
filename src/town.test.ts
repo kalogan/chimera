@@ -8,17 +8,15 @@ import { describe, expect, it } from "vitest";
 import {
   TOWN_HEIGHT,
   TOWN_HOME_TILE,
-  TOWN_PORTALS,
-  TOWN_DORMANT_PADS,
+  TOWN_WORLD_PADS,
   TOWN_SPAWN,
   TOWN_TILES,
   TOWN_TREE_TILE,
   TOWN_VILLAGERS,
   TOWN_WIDTH,
   actionForVillager,
-  dormantPadAt,
   isTownWalkable,
-  portalAt,
+  worldPadAt,
   villagerById,
 } from "./town.js";
 
@@ -99,11 +97,26 @@ describe("actionForVillager", () => {
   });
 });
 
-describe("TOWN_PORTALS (zone teleporter pads)", () => {
-  it("has one pad per zone id, all on walkable tiles", () => {
-    const zoneIds = TOWN_PORTALS.map((p) => p.zoneId);
-    expect(new Set(zoneIds)).toEqual(new Set(["meadowmere", "emberdeep", "tidewrack"]));
-    for (const p of TOWN_PORTALS) {
+describe("TOWN_WORLD_PADS (the unified 8-world pad model)", () => {
+  it("has exactly 8 pads — one per world, all on walkable tiles, unique world+zone ids", () => {
+    expect(TOWN_WORLD_PADS.length).toBe(8);
+    const worldIds = TOWN_WORLD_PADS.map((p) => p.worldId);
+    const zoneIds = TOWN_WORLD_PADS.map((p) => p.zoneId);
+    expect(new Set(worldIds).size).toBe(8);
+    expect(new Set(zoneIds).size).toBe(8);
+    expect(new Set(zoneIds)).toEqual(
+      new Set([
+        "meadowmere",
+        "skyreach",
+        "tidewrack",
+        "oozehollow",
+        "verdanthush",
+        "emberdeep",
+        "stonewake",
+        "hollowvale",
+      ]),
+    );
+    for (const p of TOWN_WORLD_PADS) {
       const [x, y] = p.tile;
       expect(isTownWalkable(x, y)).toBe(true);
     }
@@ -115,7 +128,7 @@ describe("TOWN_PORTALS (zone teleporter pads)", () => {
       TOWN_SPAWN.join(","),
     ]);
     const padTiles = new Set<string>();
-    for (const p of TOWN_PORTALS) {
+    for (const p of TOWN_WORLD_PADS) {
       const key = p.tile.join(",");
       expect(occupied.has(key)).toBe(false);
       expect(padTiles.has(key)).toBe(false);
@@ -123,10 +136,10 @@ describe("TOWN_PORTALS (zone teleporter pads)", () => {
     }
   });
 
-  it("portalAt finds the pad standing on its own tile and misses elsewhere", () => {
-    const first = TOWN_PORTALS[0]!;
-    expect(portalAt(first.tile[0], first.tile[1])?.zoneId).toBe(first.zoneId);
-    expect(portalAt(-1, -1)).toBeUndefined();
+  it("worldPadAt finds the pad standing on its own tile and misses elsewhere", () => {
+    const first = TOWN_WORLD_PADS[0]!;
+    expect(worldPadAt(first.tile[0], first.tile[1])?.worldId).toBe(first.worldId);
+    expect(worldPadAt(-1, -1)).toBeUndefined();
   });
 });
 
@@ -135,7 +148,7 @@ describe("TOWN_HOME_TILE (the Home building)", () => {
     const [hx, hy] = TOWN_HOME_TILE;
     expect(isTownWalkable(hx, hy)).toBe(true);
     for (const v of TOWN_VILLAGERS) expect(v.tile).not.toEqual(TOWN_HOME_TILE);
-    for (const p of TOWN_PORTALS) expect(p.tile).not.toEqual(TOWN_HOME_TILE);
+    for (const p of TOWN_WORLD_PADS) expect(p.tile).not.toEqual(TOWN_HOME_TILE);
     expect(TOWN_SPAWN).not.toEqual(TOWN_HOME_TILE);
   });
 });
@@ -145,43 +158,8 @@ describe("TOWN_TREE_TILE (the Aldercradle)", () => {
     const [tx, ty] = TOWN_TREE_TILE;
     expect(isTownWalkable(tx, ty)).toBe(true);
     for (const v of TOWN_VILLAGERS) expect(v.tile).not.toEqual(TOWN_TREE_TILE);
-    for (const p of TOWN_PORTALS) expect(p.tile).not.toEqual(TOWN_TREE_TILE);
+    for (const p of TOWN_WORLD_PADS) expect(p.tile).not.toEqual(TOWN_TREE_TILE);
     expect(TOWN_SPAWN).not.toEqual(TOWN_TREE_TILE);
     expect(TOWN_HOME_TILE).not.toEqual(TOWN_TREE_TILE);
-  });
-});
-
-describe("TOWN_DORMANT_PADS (the 5 roadmap worlds)", () => {
-  it("has exactly 5 pads, each on a walkable tile with a unique world id", () => {
-    expect(TOWN_DORMANT_PADS.length).toBe(5);
-    const ids = TOWN_DORMANT_PADS.map((p) => p.worldId);
-    expect(new Set(ids).size).toBe(5);
-    for (const p of TOWN_DORMANT_PADS) {
-      const [x, y] = p.tile;
-      expect(isTownWalkable(x, y)).toBe(true);
-    }
-  });
-
-  it("no dormant pad collides with a villager, live pad, Home, the tree, or the spawn", () => {
-    const occupied = new Set<string>([
-      ...TOWN_VILLAGERS.map((v) => v.tile.join(",")),
-      ...TOWN_PORTALS.map((p) => p.tile.join(",")),
-      TOWN_HOME_TILE.join(","),
-      TOWN_TREE_TILE.join(","),
-      TOWN_SPAWN.join(","),
-    ]);
-    const seen = new Set<string>();
-    for (const p of TOWN_DORMANT_PADS) {
-      const key = p.tile.join(",");
-      expect(occupied.has(key)).toBe(false);
-      expect(seen.has(key)).toBe(false);
-      seen.add(key);
-    }
-  });
-
-  it("dormantPadAt finds a pad on its own tile and misses elsewhere", () => {
-    const first = TOWN_DORMANT_PADS[0]!;
-    expect(dormantPadAt(first.tile[0], first.tile[1])?.worldId).toBe(first.worldId);
-    expect(dormantPadAt(-1, -1)).toBeUndefined();
   });
 });

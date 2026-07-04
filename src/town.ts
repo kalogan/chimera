@@ -216,56 +216,47 @@ export function villagerById(id: string): TownVillager | undefined {
   return TOWN_VILLAGERS.find((v) => v.id === id);
 }
 
-// ── zone teleporter pads ─────────────────────────────────────────────────────
+// ── the 8 world pads (UNIFIED — one pad per world, active or dormant) ───────
 
-/** A walkable teleporter pad in the plaza: step onto its tile to travel to
- *  `zoneId`. One pad per overworld zone (see zone.ts's ZONE_IDS/ZONE_LABELS),
- *  spread around the plaza's outer corners so they read as distinct
- *  destinations rather than a cluster. Only rendered/active for zones the
- *  player has UNLOCKED (game.ts's `unlockedZones`) — Meadowmere's pad is
- *  always available since it's unlocked from a fresh game. */
-export interface TownPortal {
+/**
+ * A walkable world pad in the plaza: step onto its tile to travel to
+ * `zoneId` — but ONLY once the world is unlocked (worldtree.ts's
+ * `isWorldUnlocked`, derived from `game.heartseeds`); otherwise it's a
+ * DORMANT pad (no travel, just a soft "still sleeps" hint). One pad per one
+ * of the 8 worlds (see worldtree.ts's `WORLDS`/`WORLD_ORDER`), spread around
+ * the plaza so they read as 8 distinct destinations rather than a cluster.
+ *
+ * Replaces the old split `TOWN_PORTALS` (3 built/live) + `TOWN_DORMANT_PADS`
+ * (5 roadmap/dimmed) now that all 8 worlds have a real zone — active vs.
+ * dormant is purely a function of chain-unlock progress, never a hand-set
+ * "is this world built yet" flag. `worldId` matches worldtree.ts's
+ * `WorldDescriptor.id` (== the creature family); `zoneId` matches zone.ts's
+ * `ZONE_IDS` — the Architect can render/label/route straight off this one
+ * list without a second lookup table.
+ */
+export interface TownWorldPad {
+  worldId: string;
   zoneId: string;
   tile: [number, number];
   label: string;
 }
 
-export const TOWN_PORTALS: TownPortal[] = [
-  { zoneId: "meadowmere", tile: [1, 1], label: "Meadowmere" },
-  { zoneId: "emberdeep", tile: [11, 1], label: "Emberdeep" },
-  { zoneId: "tidewrack", tile: [1, 9], label: "Tidewrack" },
+export const TOWN_WORLD_PADS: TownWorldPad[] = [
+  { worldId: "beast", zoneId: "meadowmere", tile: [1, 1], label: "Meadowmere" },
+  { worldId: "bird", zoneId: "skyreach", tile: [2, 3], label: "Skyreach" },
+  { worldId: "aquatic", zoneId: "tidewrack", tile: [1, 9], label: "Tidewrack" },
+  { worldId: "slime", zoneId: "oozehollow", tile: [10, 3], label: "Ooze Hollow" },
+  { worldId: "nature", zoneId: "verdanthush", tile: [2, 7], label: "Verdant Hush" },
+  { worldId: "dragon", zoneId: "emberdeep", tile: [11, 1], label: "Emberdeep" },
+  { worldId: "golem", zoneId: "stonewake", tile: [10, 7], label: "Stonewake" },
+  { worldId: "spirit", zoneId: "hollowvale", tile: [6, 9], label: "The Hollow Vale" },
 ];
 
-/** The pad standing on `[x, y]`, or undefined if no pad occupies that tile. */
-export function portalAt(x: number, y: number): TownPortal | undefined {
-  return TOWN_PORTALS.find((p) => p.tile[0] === x && p.tile[1] === y);
-}
-
-// ── dormant future-world pads (Aldercradle roadmap worlds) ──────────────────
-
-/** A DORMANT pad for one of the 5 not-yet-built worlds (bird/slime/nature/
- *  golem/spirit — see worldtree.ts's WORLDS). Walking onto one never travels
- *  (there's no zone to go to yet) — it just shows a soft "still sleeps"
- *  hint. `worldId` matches worldtree.ts's `WorldDescriptor.id` (== the
- *  creature family), so the Architect can render/label it straight off the
- *  registry without a second lookup table. */
-export interface TownDormantPad {
-  worldId: string;
-  tile: [number, number];
-  label: string;
-}
-
-export const TOWN_DORMANT_PADS: TownDormantPad[] = [
-  { worldId: "bird", tile: [2, 3], label: "Skyreach" },
-  { worldId: "slime", tile: [10, 3], label: "Ooze Hollow" },
-  { worldId: "nature", tile: [2, 7], label: "Verdant Hush" },
-  { worldId: "golem", tile: [10, 7], label: "Stonewake" },
-  { worldId: "spirit", tile: [6, 9], label: "The Hollow Vale" },
-];
-
-/** The dormant pad standing on `[x, y]`, or undefined. */
-export function dormantPadAt(x: number, y: number): TownDormantPad | undefined {
-  return TOWN_DORMANT_PADS.find((p) => p.tile[0] === x && p.tile[1] === y);
+/** The pad standing on `[x, y]`, or undefined if no pad occupies that tile —
+ *  regardless of whether it's currently active or dormant (the caller
+ *  decides what to do with it based on unlock state). */
+export function worldPadAt(x: number, y: number): TownWorldPad | undefined {
+  return TOWN_WORLD_PADS.find((p) => p.tile[0] === x && p.tile[1] === y);
 }
 
 // ── the Home building (party/box management — replaces the old Sanctuary landing) ─

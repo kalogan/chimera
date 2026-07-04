@@ -28,13 +28,11 @@ import {
   TOWN_TILES,
   TOWN_WIDTH,
   TOWN_VILLAGERS,
-  TOWN_PORTALS,
+  TOWN_WORLD_PADS,
   TOWN_HOME_TILE,
   TOWN_TREE_TILE,
-  TOWN_DORMANT_PADS,
   type TownDirection,
-  type TownPortal,
-  type TownDormantPad,
+  type TownWorldPad,
   type TownVillager,
 } from "./town.js";
 import "./town.css";
@@ -343,12 +341,13 @@ function PortalPad({ tile, w, h }: { tile: [number, number]; w: number; h: numbe
   );
 }
 
-/** A DORMANT future-world pad (one of the 5 not-yet-built worlds — bird/
- *  slime/nature/golem/spirit). Deliberately the visual OPPOSITE of a live
- *  `PortalPad`: dimmed/desaturated stone, no golden glow, no spin — it reads
- *  at a glance as "not ready yet" rather than "step here to travel". Walking
- *  onto it never travels (game.ts's townStep reports a `dormant` pending,
- *  never a `portal` one) — App.tsx shows a soft hint instead. */
+/** A DORMANT (not-yet-unlocked) world pad — worldtree.ts's Aldercradle chain
+ *  hasn't opened this world yet (the world before it in WORLD_ORDER isn't
+ *  healed). Deliberately the visual OPPOSITE of a live `PortalPad`:
+ *  dimmed/desaturated stone, no golden glow, no spin — it reads at a glance
+ *  as "not ready yet" rather than "step here to travel". Walking onto it
+ *  never travels (game.ts's townStep reports a `dormant` pending, never a
+ *  `portal` one) — App.tsx shows a soft hint instead. */
 function DormantPad({ tile, w, h }: { tile: [number, number]; w: number; h: number }) {
   const [wx, , wz] = worldOf(tile[0], tile[1], w, h);
   return (
@@ -396,10 +395,10 @@ function HomeBuilding({ w, h }: { w: number; h: number }) {
 export interface TownSceneProps {
   /** The villager roster to render (defaults to the full town.ts roster). */
   villagers?: TownVillager[];
-  /** Zone teleporter pads to render (default the full TOWN_PORTALS list) —
-   *  the caller filters this to `game.unlockedZones` before passing it in, so
-   *  a not-yet-unlocked zone's pad never appears in the plaza. */
-  portals?: TownPortal[];
+  /** UNLOCKED world pads to render as active golden portals (default: none —
+   *  the caller filters TOWN_WORLD_PADS to worldtree.ts's `isWorldUnlocked`
+   *  before passing it in, so a locked world's pad never renders as active). */
+  activePads?: TownWorldPad[];
   /** The player's current grid tile — this component tweens toward it. */
   playerTile: [number, number];
   /** Fired when the Architect's input layer requests a grid step (WASD/d-pad).
@@ -418,10 +417,10 @@ export interface TownSceneProps {
    *  Aldercradle tree's bloom stage. Defaults to 0 (a bare, withered sapling)
    *  so this component never needs game.ts to render something reasonable. */
   healedCount?: number;
-  /** Dormant future-world pads to render (default the full TOWN_DORMANT_PADS
-   *  list — unlike zone pads, ALL 5 always render dimmed; there's no unlock
-   *  state for a world that doesn't exist yet). */
-  dormantPads?: TownDormantPad[];
+  /** DORMANT (not-yet-unlocked) world pads to render dimmed (default the full
+   *  TOWN_WORLD_PADS list — the caller filters out any pad already active in
+   *  `activePads` before passing it in). */
+  dormantPads?: TownWorldPad[];
   /** Show the built-in "E: talk to <name>" hint overlay. Default true. */
   showApproachHint?: boolean;
 }
@@ -433,14 +432,14 @@ function gridDistance(ax: number, ay: number, bx: number, by: number): number {
 
 export function TownScene({
   villagers = TOWN_VILLAGERS,
-  portals = TOWN_PORTALS,
+  activePads = [],
   playerTile,
   onMove: _onMove,
   onApproach,
   onApproachHome,
   onApproachTree,
   healedCount = 0,
-  dormantPads = TOWN_DORMANT_PADS,
+  dormantPads = TOWN_WORLD_PADS,
   showApproachHint = true,
 }: TownSceneProps) {
   const playerPos = useRef(new THREE.Vector3());
@@ -515,8 +514,8 @@ export function TownScene({
         <TownTerrain />
         <AldercradleTree w={w} h={h} healedCount={healedCount} />
         <HomeBuilding w={w} h={h} />
-        {portals.map((p) => (
-          <PortalPad key={p.zoneId} tile={p.tile} w={w} h={h} />
+        {activePads.map((p) => (
+          <PortalPad key={p.worldId} tile={p.tile} w={w} h={h} />
         ))}
         {dormantPads.map((p) => (
           <DormantPad key={p.worldId} tile={p.tile} w={w} h={h} />
