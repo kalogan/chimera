@@ -408,11 +408,10 @@ function ZoneScreen({ game, setGame, onPause, paused }: ScreenProps & { onPause:
     if (now - lastStep.current < 135) return;
     lastStep.current = now;
 
-    const { game: g2, events, pending } = zoneStep(game, dir);
-    for (const ev of events) {
-      if (ev.type === "moved") audio().playUi("select");
-      else if (ev.type === "blocked") audio().playUi("back");
-    }
+    const { game: g2, pending } = zoneStep(game, dir);
+    // Walking is SILENT — the per-step d-pad tick was too noisy. UI sound is
+    // reserved for menu/interact + the meaningful transitions below (an
+    // encounter's cry, a portal's confirm).
     setGame(g2);
 
     if (pending?.kind === "encounter") {
@@ -535,8 +534,7 @@ function TownScreen({ game, setGame, onPause, paused }: ScreenProps & { onPause:
     lastStep.current = now;
     const [dx, dy] = TOWN_DIRECTION_DELTA[dir];
     const { game: g2, pending } = townStep(game, dx, dy);
-    if (g2 !== game) audio().playUi("select");
-    setGame(g2);
+    setGame(g2); // walking is silent (see ZoneScreen) — no per-step d-pad tick
 
     if (pending?.kind === "portal") {
       busy.current = true;
