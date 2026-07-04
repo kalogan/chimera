@@ -1,9 +1,11 @@
 /**
- * zone-registry — proof of the Wave 5 world map: the zone registry resolves
- * every id, each zone's portals form a connected travel graph (meadowmere <->
- * emberdeep <-> tidewrack, each also reachable back to the Town — the
- * `SANCTUARY_TARGET` routing id is legacy, but travelPortal now resolves it
- * to the walkable Town hub, not the retired Sanctuary menu), and
+ * zone-registry — proof of the world map (now all 8 Aldercradle worlds, per
+ * worldtree.ts's WORLD_ORDER linear chain): the zone registry resolves every
+ * id, each zone's portals form a connected travel graph (a straight chain —
+ * meadowmere <-> skyreach <-> tidewrack <-> oozehollow <-> verdanthush <->
+ * emberdeep <-> stonewake <-> hollowvale, each also reachable back to the
+ * Town — the `SANCTUARY_TARGET` routing id is legacy, but travelPortal now
+ * resolves it to the walkable Town hub, not the retired Sanctuary menu), and
  * `enterZone`/`travelPortal` actually walk that graph at the game.ts layer.
  * Also pins the rival-battle balance fix: both rivals field a full 3-creature
  * starting party rather than the old 1v3/2v3 opener.

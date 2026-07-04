@@ -24,6 +24,11 @@ import {
   ZONE_PALETTE,
   EMBERDEEP_PALETTE,
   TIDEWRACK_PALETTE,
+  SKYREACH_PALETTE,
+  OOZEHOLLOW_PALETTE,
+  VERDANTHUSH_PALETTE,
+  STONEWAKE_PALETTE,
+  HOLLOWVALE_PALETTE,
   type EnvPalette,
 } from "./env.js";
 import type { PlacedRival } from "./rivals.js";
@@ -85,10 +90,78 @@ const TIDEWRACK_THEME: ZoneTheme = {
   grassBlade: "#bff0e6",
 };
 
+// Skyreach — pale wind-swept cloud-stone floor, bright airy cliff walls,
+// updraft-vents (the encounter tile) instead of grass.
+const SKYREACH_THEME: ZoneTheme = {
+  palette: SKYREACH_PALETTE,
+  bg: "#eaf6ff",
+  groundBase: "#dfe9ee",
+  groundSpots: ["rgba(150,180,200,0.14)", "rgba(255,255,255,0.22)"],
+  wall: "#a8c0d0",
+  grassFloor: "#bcdaf0",
+  grassBlade: "#f4faff",
+};
+
+// Ooze Hollow — damp mossy floor, soft rounded wall stone, ooze-pools instead
+// of grass — a hushed, tucked-away hollow, not a grand vista.
+const OOZEHOLLOW_THEME: ZoneTheme = {
+  palette: OOZEHOLLOW_PALETTE,
+  bg: "#cbd9a8",
+  groundBase: "#8a9a6a",
+  groundSpots: ["rgba(60,80,50,0.2)", "rgba(210,230,170,0.18)"],
+  wall: "#5f7048",
+  grassFloor: "#7fae5a",
+  grassBlade: "#c9dc7f",
+};
+
+// Verdant Hush — mossy woodland floor, hedge-green walls, bloom-patches
+// instead of grass — a deep, lush, growing home.
+const VERDANTHUSH_THEME: ZoneTheme = {
+  palette: VERDANTHUSH_PALETTE,
+  bg: "#cdeec0",
+  groundBase: "#4f7a3f",
+  groundSpots: ["rgba(30,60,20,0.2)", "rgba(200,235,150,0.18)"],
+  wall: "#3f6a34",
+  grassFloor: "#8fc95f",
+  grassBlade: "#eaffb8",
+};
+
+// Stonewake — worn rock floor, old-stone walls, rubble-vents instead of
+// grass — a patient, mountainous, amber-lit home.
+const STONEWAKE_THEME: ZoneTheme = {
+  palette: STONEWAKE_PALETTE,
+  bg: "#e8d3a8",
+  groundBase: "#8a7355",
+  groundSpots: ["rgba(60,45,30,0.22)", "rgba(230,200,150,0.18)"],
+  wall: "#6b5a44",
+  grassFloor: "#a9885f",
+  grassBlade: "#ffd9a0",
+};
+
+// The Hollow Vale — violet-shadowed floor, dusk-stone walls, will-o-wisps
+// instead of grass — the dimmest, most twilight-otherworldly of the 8.
+const HOLLOWVALE_THEME: ZoneTheme = {
+  palette: HOLLOWVALE_PALETTE,
+  bg: "#4a3a5e",
+  groundBase: "#3a2e4a",
+  groundSpots: ["rgba(15,10,25,0.3)", "rgba(180,160,220,0.18)"],
+  wall: "#2a2038",
+  grassFloor: "#5a4a70",
+  grassBlade: "#cfc0ef",
+};
+
+// One theme per zone.ts's ZONE_IDS entry (verified by inspection — this
+// headless-tested repo can't import this .tsx file from a vitest suite since
+// it pulls in three/@react-three/fiber; see difficulty-ramp.test.ts's note).
 const ZONE_THEMES: Record<string, ZoneTheme> = {
   meadowmere: MEADOWMERE_THEME,
-  emberdeep: EMBERDEEP_THEME,
+  skyreach: SKYREACH_THEME,
   tidewrack: TIDEWRACK_THEME,
+  oozehollow: OOZEHOLLOW_THEME,
+  verdanthush: VERDANTHUSH_THEME,
+  emberdeep: EMBERDEEP_THEME,
+  stonewake: STONEWAKE_THEME,
+  hollowvale: HOLLOWVALE_THEME,
 };
 
 function themeFor(zoneId: string): ZoneTheme {

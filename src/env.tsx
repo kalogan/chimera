@@ -90,6 +90,85 @@ export const TIDEWRACK_PALETTE: EnvPalette = {
   fillIntensity: 1.1,
 };
 
+/** Skyreach — airy sky-cliffs. Bright/open: a pale wind-swept horizon, a
+ *  crisp high-altitude key light, and the longest fog draw of any world so
+ *  distant cloud-cliffs melt into open air rather than reading as enclosed. */
+export const SKYREACH_PALETTE: EnvPalette = {
+  skyHorizon: "#eaf6ff",
+  skyZenith: "#4a9fd9",
+  fogColor: "#dff2fb",
+  fogNear: 28,
+  fogFar: 72,
+  keyColor: "#fff6d9",
+  keyIntensity: 1.5,
+  fillSky: "#f4fbff",
+  fillGround: "#bcd8ea",
+  fillIntensity: 1.15,
+};
+
+/** Ooze Hollow — a soft, shifting hollow. Damp/muted: a mossy violet-green
+ *  horizon, a gentle low key, closer fog so the hollow reads as tucked-away
+ *  and cozy rather than grand. */
+export const OOZEHOLLOW_PALETTE: EnvPalette = {
+  skyHorizon: "#cbd9a8",
+  skyZenith: "#6f8a5c",
+  fogColor: "#c3d6ab",
+  fogNear: 16,
+  fogFar: 46,
+  keyColor: "#dce8a0",
+  keyIntensity: 1.1,
+  fillSky: "#e6f0c9",
+  fillGround: "#7a9a5f",
+  fillIntensity: 0.95,
+};
+
+/** Verdant Hush — a green, growing home. Deep/lush: a rich canopy-green
+ *  horizon, a soft dappled key (as if filtered through leaves), and a hushed
+ *  mid-distance fog. */
+export const VERDANTHUSH_PALETTE: EnvPalette = {
+  skyHorizon: "#cdeec0",
+  skyZenith: "#3f7d4a",
+  fogColor: "#bfe3ae",
+  fogNear: 20,
+  fogFar: 56,
+  keyColor: "#eaffb8",
+  keyIntensity: 1.2,
+  fillSky: "#e2f7d0",
+  fillGround: "#4f8a4a",
+  fillIntensity: 1.05,
+};
+
+/** Stonewake — a patient, mountainous home. Warm/dusty: an amber-stone
+ *  horizon, a steady warm key, and a heavier close fog for old-mountain haze. */
+export const STONEWAKE_PALETTE: EnvPalette = {
+  skyHorizon: "#e8d3a8",
+  skyZenith: "#8a6a4a",
+  fogColor: "#d9c19a",
+  fogNear: 18,
+  fogFar: 50,
+  keyColor: "#ffd9a0",
+  keyIntensity: 1.3,
+  fillSky: "#f0e0bf",
+  fillGround: "#6b5a44",
+  fillIntensity: 0.95,
+};
+
+/** The Hollow Vale — a dim, twilight home. Dusk/violet: a deep violet-dusk
+ *  horizon, a cool pale key (moonlight, not sun), and the closest fog of any
+ *  world so it reads as the most enclosed, hushed, otherworldly place. */
+export const HOLLOWVALE_PALETTE: EnvPalette = {
+  skyHorizon: "#4a3a5e",
+  skyZenith: "#1c1428",
+  fogColor: "#3a2e4a",
+  fogNear: 12,
+  fogFar: 38,
+  keyColor: "#cfc0ef",
+  keyIntensity: 1.05,
+  fillSky: "#5a4a70",
+  fillGround: "#2a2038",
+  fillIntensity: 0.8,
+};
+
 /**
  * Build a vertical-gradient canvas texture (a couple dozen KB, generated once
  * and memoized) used both as the sky-sphere map. Cheap alternative to an HDRI.
