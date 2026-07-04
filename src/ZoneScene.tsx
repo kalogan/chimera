@@ -15,6 +15,7 @@ import { Billboard } from "game-kit/billboard/r3f";
 import { creatureFromToken, type GooberSpec } from "game-kit/creature";
 import type { ZoneState } from "game-kit/world-runtime";
 import { Goober } from "./Goober.js";
+import { ResponsiveFov } from "./responsive-cam.js";
 import {
   ContactBlob,
   GooberEnv,
@@ -298,6 +299,7 @@ export function ZoneScene({
       camera={{ position: [spawnX, CAM_UP, spawnZ + CAM_BACK], fov: CAM_FOV }}
     >
       <color attach="background" args={[theme.bg]} />
+      <ResponsiveFov baseFov={CAM_FOV} maxFov={54} />
       <GooberEnv palette={theme.palette} />
       <FollowCam target={playerPos} />
       <Terrain zone={zone} theme={theme} />
