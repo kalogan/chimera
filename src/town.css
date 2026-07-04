@@ -1,0 +1,216 @@
+/* town.css — styles for the TOWN dialogue box + town HUD bits (imported from
+   town-dialogue.tsx / town-scene.tsx only; styles.css is never touched).
+   Reuses CHIMERA's warm palette custom properties already declared on :root
+   in styles.css (--ink/--parchment/--parchment-2/--warm/--warm-deep/--bond/
+   --sky/--panel/--shadow) so the town reads as part of the same cozy world —
+   with local fallbacks in case this file is ever loaded standalone. */
+
+.town-dialogue-dock {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  pointer-events: none;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  z-index: 20;
+}
+
+.town-dialogue-panel {
+  pointer-events: auto;
+  width: min(720px, 94vw);
+  margin-bottom: clamp(12px, 5vh, 40px);
+  padding: 16px 20px 14px;
+  background: var(--panel, rgba(247, 239, 226, 0.95));
+  border: 1px solid var(--warm-deep, #c9762e);
+  border-radius: 14px;
+  box-shadow: var(--shadow, 0 6px 22px rgba(43, 36, 64, 0.22));
+  color: var(--ink, #2b2440);
+}
+
+.town-dialogue-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  gap: 10px;
+}
+
+.town-dialogue-plate {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 14px;
+  background: var(--parchment-2, #efe3cf);
+  border: 2px solid var(--warm, #e8a84c);
+  border-radius: 999px;
+}
+
+.town-dialogue-speaker {
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: 0.02em;
+}
+
+.town-dialogue-role {
+  font-size: 11px;
+  opacity: 0.65;
+  font-style: italic;
+}
+
+.town-dialogue-close {
+  background: transparent;
+  border: 1px solid var(--ink, #2b2440);
+  opacity: 0.5;
+  color: var(--ink, #2b2440);
+  font-size: 13px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.town-dialogue-close:hover { opacity: 0.9; }
+
+.town-dialogue-current {
+  font-size: 18px;
+  line-height: 1.5;
+  padding: 8px 4px 14px;
+  min-height: 28px;
+}
+.town-dialogue-current.is-thinking {
+  opacity: 0.55;
+  letter-spacing: 0.25em;
+  font-style: italic;
+}
+
+.town-dialogue-log {
+  max-height: 18vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding-right: 4px;
+  opacity: 0.72;
+}
+.town-dialogue-line-villager { font-size: 13px; line-height: 1.5; }
+.town-dialogue-line-you { font-size: 12px; line-height: 1.4; opacity: 0.8; }
+
+.town-dialogue-quests {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.town-dialogue-quest {
+  padding: 10px 12px;
+  background: var(--parchment-2, #efe3cf);
+  border: 1px solid var(--warm, #e8a84c);
+  border-radius: 10px;
+}
+.town-dialogue-quest-title { font-weight: 700; font-size: 13px; margin-bottom: 2px; }
+.town-dialogue-quest-desc { font-size: 12px; opacity: 0.75; margin-bottom: 8px; }
+.town-dialogue-quest-accept {
+  background: var(--bond, #6fb98f);
+  border: none;
+  color: #fff;
+  font-weight: 700;
+  font-size: 12px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.town-dialogue-quest-accept:hover { filter: brightness(1.08); }
+
+.town-dialogue-open-btn {
+  display: block;
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 10px 16px;
+  background: var(--warm, #e8a84c);
+  border: none;
+  border-radius: 10px;
+  color: #2b2440;
+  font-weight: 800;
+  font-size: 14px;
+  cursor: pointer;
+  transition: filter 120ms ease, transform 120ms ease;
+}
+.town-dialogue-open-btn:hover { filter: brightness(1.06); transform: translateY(-1px); }
+
+.town-dialogue-form {
+  display: flex;
+  gap: 8px;
+}
+.town-dialogue-input {
+  flex: 1;
+  background: #fff;
+  border: 1px solid var(--warm-deep, #c9762e);
+  color: var(--ink, #2b2440);
+  font-size: 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  outline: none;
+  min-width: 0;
+}
+.town-dialogue-send {
+  background: var(--warm-deep, #c9762e);
+  border: none;
+  color: #fff;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  padding: 10px 18px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.town-dialogue-send:disabled { opacity: 0.5; cursor: default; }
+
+.town-dialogue-foot {
+  margin-top: 10px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  opacity: 0.55;
+  letter-spacing: 0.08em;
+}
+
+/* ── town HUD bits (the walk-up "E: talk to <name>" prompt, etc.) ────────── */
+
+.town-approach-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 14%;
+  transform: translateX(-50%);
+  padding: 8px 18px;
+  background: var(--panel, rgba(247, 239, 226, 0.92));
+  border: 1px solid var(--warm-deep, #c9762e);
+  border-radius: 999px;
+  box-shadow: var(--shadow, 0 6px 22px rgba(43, 36, 64, 0.22));
+  color: var(--ink, #2b2440);
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 15;
+}
+
+.town-nameplate {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  padding: 2px 10px;
+  background: rgba(247, 239, 226, 0.88);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+@media (max-width: 520px) {
+  .town-dialogue-panel { width: 96vw; padding: 12px 14px 12px; }
+  .town-dialogue-current { font-size: 16px; }
+  .town-dialogue-input { font-size: 16px; } /* avoid iOS zoom-on-focus */
+}
