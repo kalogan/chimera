@@ -14,6 +14,7 @@ import {
   dexCount,
   type RosterState,
 } from "game-kit/roster";
+import type { RivalState } from "game-kit/rival";
 import {
   createBattle,
   step,
@@ -27,6 +28,7 @@ import {
   createZone,
   stepZone,
   resumeAfterEncounter,
+  isWalkable,
   type ZoneState,
   type ZoneEvent,
   type Dir,
@@ -39,6 +41,15 @@ import {
   type EconomyState,
 } from "game-kit/economy";
 import { MEADOWMERE } from "./zone.js";
+import {
+  makeRivals,
+  makeRivalCtx,
+  advanceRivals,
+  driftRivals,
+  rivalAt,
+  updateRival,
+  type PlacedRival,
+} from "./rivals.js";
 
 export type Screen = "party" | "zone" | "battle" | "cradle" | "newborn" | "shop";
 
@@ -68,6 +79,14 @@ export interface GameState {
   // Wave 3: currency + inventory (the Market). Gold is earned from encounters;
   // items are bought here and (next slice) used in battle.
   economy: EconomyState;
+  // Wave 4: rivals. Two AI rivals sim off-screen (kit `rival` module — real
+  // roster/dex/breeding/economy reducers) and roam Meadowmere; walking into one
+  // triggers a RIVAL BATTLE against their sim-produced party. `rivalBattleId`
+  // remembers which rival you're currently fighting (null for a wild battle) so
+  // Return-to-zone knows to relocate/advance that rival rather than consume a
+  // roamer.
+  rivals: PlacedRival[];
+  rivalBattleId: string | null;
 }
 
 // Three balanced rank-C starter companions (scanned for viable, non-godlike stats).
@@ -94,6 +113,8 @@ export function newGame(): GameState {
     zone: null,
     zoneReturnRoamerId: null,
     economy: createEconomy({ gold: 120, items: { "healing-herb": 2 } }),
+    rivals: makeRivals(),
+    rivalBattleId: null,
   };
 }
 
@@ -135,13 +156,22 @@ export function startEncounter(g: GameState): GameState {
 
 // ── Overworld (Wave 2): the walkable Meadowmere ────────────────────────────────
 
+// How many off-screen sim steps each rival gets per zone entry — enough that
+// their roster/economy visibly differ (a scout, a hunt, sometimes a breed)
+// between visits without a long pause.
+const RIVAL_STEPS_PER_VISIT = 3;
+
 /** Leave the Sanctuary and walk into Meadowmere (a fresh, seeded zone). */
 export function enterZone(g: GameState): GameState {
+  const ctx = makeRivalCtx();
+  const rivals = advanceRivals(g.rivals, ctx, RIVAL_STEPS_PER_VISIT, MEADOWMERE.id);
   return {
     ...g,
     screen: "zone",
     zone: createZone(MEADOWMERE, g.encounterSeed * 101 + 7),
     zoneReturnRoamerId: null,
+    rivals,
+    rivalBattleId: null,
   };
 }
 
@@ -168,6 +198,7 @@ export function startEncounterWith(
 /** What a zone step wants the view layer to do next (after the hop plays). */
 export type ZonePending =
   | { kind: "encounter"; token: CreatureToken; roamerId: string | null }
+  | { kind: "rival"; rivalId: string; name: string }
   | { kind: "portal"; to: string }
   | null;
 
@@ -175,6 +206,14 @@ export type ZonePending =
  * Advance the overworld one grid step. Returns the zone-updated game (screen
  * stays "zone" so the hop animates), the ordered ZoneEvent stream (for audio),
  * and a `pending` transition the view triggers after a short beat.
+ *
+ * Rivals are NOT kit `RoamerState`s (chimera tracks their tile positions in
+ * `g.rivals`, parallel to `world-runtime`'s own roamers) — so after the kit
+ * resolves the player's hop, we drift every in-zone rival one tile and check
+ * the player's NEW tile against each rival's tile. A rival collision takes
+ * PRIORITY over any wild pending (checked first below), and — like a wild
+ * roamer hit — only fires when the kit step didn't already latch `done`
+ * (can't double-trigger a battle on the same hop).
  */
 export function zoneStep(
   g: GameState,
@@ -182,17 +221,68 @@ export function zoneStep(
 ): { game: GameState; events: ZoneEvent[]; pending: ZonePending } {
   if (g.screen !== "zone" || !g.zone) return { game: g, events: [], pending: null };
   const { state, events } = stepZone(g.zone, dir);
-  const game = { ...g, zone: state };
 
+  let rivals = g.rivals;
   let pending: ZonePending = null;
-  for (const ev of events) {
-    if (ev.type === "encounter") {
-      pending = { kind: "encounter", token: ev.token, roamerId: ev.roamerId ?? null };
-    } else if (ev.type === "portal") {
-      pending = { kind: "portal", to: ev.to };
+
+  const moved = events.some((ev) => ev.type === "moved");
+  const kitDone = state.done !== undefined;
+
+  if (moved && !kitDone) {
+    // Only drift rivals + check collision on a successful, uncontested hop.
+    rivals = driftRivals(
+      g.rivals,
+      MEADOWMERE.id,
+      state.player.x,
+      state.player.y,
+      state.step,
+      (x, y) => isWalkable(state, x, y),
+    );
+    const hit = rivalAt(rivals, MEADOWMERE.id, state.player.x, state.player.y);
+    if (hit) pending = { kind: "rival", rivalId: hit.rival.id, name: hit.rival.name };
+  }
+
+  if (!pending) {
+    for (const ev of events) {
+      if (ev.type === "encounter") {
+        pending = { kind: "encounter", token: ev.token, roamerId: ev.roamerId ?? null };
+      } else if (ev.type === "portal") {
+        pending = { kind: "portal", to: ev.to };
+      }
     }
   }
+
+  const game = { ...g, zone: state, rivals };
   return { game, events, pending };
+}
+
+/**
+ * Start a RIVAL BATTLE: your 3 party vs the rival's CURRENT sim-produced party
+ * (`rival.roster.party`, expressed to full `Creature`s — never a fixed team).
+ * The kit's `createBattle` already supports uneven N-vs-N, so a rival whose
+ * sim hasn't grown past one starter still fields a legal (if lopsided) fight.
+ */
+export function startRivalBattle(g: GameState, rival: RivalState): GameState {
+  const enemyTeam = rival.roster.party.map((t) => creatureFromToken(t));
+  const battle = createBattle(partyCreatures(g), enemyTeam, g.encounterSeed * 1000 + hashSeedFromId(rival.id));
+  return {
+    ...g,
+    screen: "battle",
+    wildToken: null,
+    battle,
+    outcome: null,
+    rivalBattleId: rival.id,
+    zoneReturnRoamerId: null,
+    log: [`${rival.name} blocks your path — a rival battle begins!`],
+  };
+}
+
+// A tiny deterministic string→int so a rival battle's seed varies by WHICH
+// rival you fight (not just the shared encounterSeed), without a real hash dep.
+function hashSeedFromId(id: string): number {
+  let h = 7;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
+  return (h >>> 0) % 97 + 3;
 }
 
 /** After a zone battle resolves, return to Meadowmere (consuming that roamer). */
@@ -200,6 +290,20 @@ export function returnToZone(g: GameState): GameState {
   const zone = g.zone
     ? resumeAfterEncounter(g.zone, g.zoneReturnRoamerId ?? undefined)
     : g.zone;
+
+  // A rival battle doesn't consume a kit roamer — instead, advance that
+  // rival's off-screen sim a beat further and relocate it, so it moves on
+  // (and its team keeps growing) rather than standing right where you fought.
+  let rivals = g.rivals;
+  if (g.rivalBattleId) {
+    const found = rivals.find((p) => p.rival.id === g.rivalBattleId);
+    if (found) {
+      const ctx = makeRivalCtx();
+      const [advanced] = advanceRivals([found], ctx, RIVAL_STEPS_PER_VISIT, MEADOWMERE.id);
+      rivals = updateRival(rivals, advanced!);
+    }
+  }
+
   return {
     ...g,
     screen: "zone",
@@ -208,6 +312,8 @@ export function returnToZone(g: GameState): GameState {
     outcome: null,
     zone,
     zoneReturnRoamerId: null,
+    rivalBattleId: null,
+    rivals,
     encounterSeed: g.encounterSeed + 1,
   };
 }
@@ -323,6 +429,7 @@ export function leaveBattle(g: GameState): GameState {
     battle: null,
     wildToken: null,
     outcome: null,
+    rivalBattleId: null,
     encounterSeed: g.encounterSeed + 1,
     log: [],
   };
