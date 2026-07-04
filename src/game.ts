@@ -13,6 +13,7 @@ import {
   markSeen,
   dexCount,
   release,
+  swapToParty,
   type RosterState,
 } from "game-kit/roster";
 import type { RivalState } from "game-kit/rival";
@@ -65,11 +66,11 @@ import {
   updateRival,
   type PlacedRival,
 } from "./rivals.js";
-import { TOWN_SPAWN, isTownWalkable } from "./town.js";
+import { TOWN_SPAWN, isTownWalkable, portalAt, TOWN_HOME_TILE } from "./town.js";
 import { saveGame, type SaveData } from "./save.js";
 
 export type Screen =
-  | "party"
+  | "home"
   | "zone"
   | "battle"
   | "cradle"
@@ -191,12 +192,14 @@ const STARTER_IDS = ["s16", "s24", "s33"];
 // the first meadow encounter can be softened and befriended by the starters.
 const WILD_POOL = ["w3", "w16", "w25", "w9", "w70", "w56"];
 
-/** A fresh game: a starting party of three goober companions. */
+/** A fresh game: a starting party of three goober companions. Lands in the
+ *  walkable TOWN (not the old Sanctuary/party menu) — see the Screen type's
+ *  "home" for the retired menu's successor, now a building you walk into. */
 export function newGame(): GameState {
   const starters = STARTER_IDS.map((id) => seedToken(id));
   return {
     roster: createRoster(starters, 3),
-    screen: "party",
+    screen: "town",
     encounterSeed: 1,
     battle: null,
     wildToken: null,
@@ -228,7 +231,7 @@ export function newGame(): GameState {
 export function applySave(g: GameState, data: SaveData): GameState {
   return {
     ...g,
-    screen: "party",
+    screen: "town",
     battle: null,
     wildToken: null,
     log: [],
@@ -297,11 +300,12 @@ export function startEncounter(g: GameState): GameState {
 const RIVAL_STEPS_PER_VISIT = 3;
 
 /**
- * Leave the Sanctuary (or travel from another zone) into `zoneId`'s walkable
- * map (a fresh, seeded zone state each time). Defaults to Meadowmere — the
- * entry zone every fresh game starts unlocked. Only rivals CURRENTLY in the
- * destination zone advance/relocate; rivals elsewhere keep simming quietly
- * off-screen without a placement change (handled by `advanceRivals` itself).
+ * Leave the town (via a teleporter pad) — or travel from another zone —
+ * into `zoneId`'s walkable map (a fresh, seeded zone state each time).
+ * Defaults to Meadowmere — the entry zone every fresh game starts unlocked.
+ * Only rivals CURRENTLY in the destination zone advance/relocate; rivals
+ * elsewhere keep simming quietly off-screen without a placement change
+ * (handled by `advanceRivals` itself).
  */
 export function enterZone(g: GameState, zoneId: string = "meadowmere"): GameState {
   const descriptor = zoneById(zoneId);
@@ -469,21 +473,23 @@ export function returnToZone(g: GameState): GameState {
 
 /**
  * Resolve a portal's `to` target: either `'sanctuary'` (leave the overworld
- * back to the hub) or another zone id (travel there directly, staying in the
- * "zone" screen). Both `exitZone` (legacy no-arg call, always the Sanctuary)
- * and the view's portal-pending handler route through this single function so
- * the travel graph has one source of truth.
+ * back to the TOWN — the name is legacy from before the Town existed, but the
+ * routing target is now the walkable hub, not the retired Sanctuary menu) or
+ * another zone id (travel there directly, staying in the "zone" screen). Both
+ * `exitZone` (legacy no-arg call, always back to town) and the view's
+ * portal-pending handler route through this single function so the travel
+ * graph has one source of truth.
  */
 export function travelPortal(g: GameState, to: string): GameState {
   if (to === SANCTUARY_TARGET || !ZONES[to]) {
     return exitZone(g);
   }
-  return enterZone({ ...g, screen: "party", zone: null, zoneReturnRoamerId: null }, to);
+  return enterZone({ ...g, screen: "town", zone: null, zoneReturnRoamerId: null }, to);
 }
 
-/** Step out of the overworld back to the Sanctuary hub (via a portal). Auto-saves. */
+/** Step out of the overworld back to the TOWN (via a portal). Auto-saves. */
 export function exitZone(g: GameState): GameState {
-  const next: GameState = { ...g, screen: "party", zone: null, zoneReturnRoamerId: null, log: [] };
+  const next: GameState = { ...g, screen: "town", zone: null, zoneReturnRoamerId: null, log: [] };
   saveGame(next);
   return next;
 }
@@ -597,11 +603,11 @@ export function stepBattle(
   return { game: next, events };
 }
 
-/** Leave the battle back to the sanctuary, bumping the encounter seed. Auto-saves. */
+/** Leave the battle back to the town, bumping the encounter seed. Auto-saves. */
 export function leaveBattle(g: GameState): GameState {
   const next: GameState = {
     ...g,
-    screen: "party",
+    screen: "town",
     battle: null,
     wildToken: null,
     outcome: null,
@@ -648,8 +654,12 @@ export function breedPicked(g: GameState): GameState {
   return next;
 }
 
+/** Return to the TOWN from the Cradle/Market/Dex/Newborn-reveal screens (the
+ *  name is legacy from the retired Sanctuary/party menu — kept so every call
+ *  site below stays a one-liner — but the destination is now the walkable
+ *  town, per the Director's "back to town, not the retired Sanctuary" call). */
 export function backToParty(g: GameState): GameState {
-  return { ...g, screen: "party", cradlePick: [], newborn: null };
+  return { ...g, screen: "town", cradlePick: [], newborn: null };
 }
 
 // ── Quests (Old Tamsin's questgiver flow) ───────────────────────────────────
@@ -688,18 +698,14 @@ export function offeredQuests(g: GameState): QuestDef[] {
   return offerable(GAME_QUESTS, g.quests);
 }
 
-// ── TOWN (walkable plaza hub) ────────────────────────────────────────────────
+// ── TOWN (walkable plaza hub — the game's landing place) ───────────────────
 
-/** Enter the town from the Sanctuary, at the road-in spawn tile. */
+/** Enter (or re-enter) the town at the road-in spawn tile. Still used to
+ *  return to a known-good tile (e.g. after a facility visit that doesn't
+ *  otherwise touch `townPlayerTile`), even though the town is no longer
+ *  reached FROM a separate Sanctuary menu — it's where the game lands. */
 export function enterTown(g: GameState): GameState {
   return { ...g, screen: "town", townPlayerTile: [...TOWN_SPAWN] };
-}
-
-/** Leave the town back to the Sanctuary. Auto-saves (mirrors exitZone/leaveBattle). */
-export function leaveTown(g: GameState): GameState {
-  const next: GameState = { ...g, screen: "party" };
-  saveGame(next);
-  return next;
 }
 
 /** Move the player's town tile, guarded by `isTownWalkable` — a no-op (same
@@ -710,6 +716,57 @@ export function moveInTown(g: GameState, dx: number, dy: number): GameState {
   const ny = y + dy;
   if (!isTownWalkable(nx, ny)) return g;
   return { ...g, townPlayerTile: [nx, ny] };
+}
+
+/** What a town step wants the view layer to do next (after the hop plays) —
+ *  mirrors `ZonePending`'s shape so `TownScreen`'s onStep can drive the same
+ *  "play a cue, short delay, then transition" beat ZoneScreen already uses
+ *  for its golden-ring portals. */
+export type TownPending = { kind: "portal"; zoneId: string } | { kind: "home" } | null;
+
+/** Move in town, additionally reporting a pending transition if the player's
+ *  NEW tile lands on a zone teleporter pad or the Home building's door tile.
+ *  A no-op move (blocked step) never reports a pending transition. */
+export function townStep(
+  g: GameState,
+  dx: number,
+  dy: number,
+): { game: GameState; pending: TownPending } {
+  const next = moveInTown(g, dx, dy);
+  if (next === g) return { game: next, pending: null };
+  const [x, y] = next.townPlayerTile;
+  const pad = portalAt(x, y);
+  if (pad && g.unlockedZones.includes(pad.zoneId)) {
+    return { game: next, pending: { kind: "portal", zoneId: pad.zoneId } };
+  }
+  if (x === TOWN_HOME_TILE[0] && y === TOWN_HOME_TILE[1]) {
+    return { game: next, pending: { kind: "home" } };
+  }
+  return { game: next, pending: null };
+}
+
+/** Open the Home building (party lineup + box management) from the town. */
+export function openHome(g: GameState): GameState {
+  return { ...g, screen: "home" };
+}
+
+/** Leave Home back to the town. */
+export function leaveHome(g: GameState): GameState {
+  return { ...g, screen: "town" };
+}
+
+/** Swap a storage creature into the active party (Home's box management),
+ *  optionally naming which party member to send back to storage when the
+ *  party is already full. A thin GameState wrapper over the kit's
+ *  `swapToParty` reducer — no-ops (returns `g` unchanged) on any invariant
+ *  violation rather than throwing, since this is driven straight off HomeScreen
+ *  button clicks. */
+export function swapPartyMember(g: GameState, storageTokenId: string, partyTokenId?: string): GameState {
+  try {
+    return { ...g, roster: swapToParty(g.roster, storageTokenId, partyTokenId) };
+  } catch {
+    return g;
+  }
 }
 
 // ── The Dex (Wave 5) ─────────────────────────────────────────────────────────
