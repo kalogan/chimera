@@ -433,7 +433,12 @@ function ZoneScreen({ game, setGame, onPause, paused }: ScreenProps & { onPause:
       busy.current = true;
       audio().playUi("confirm");
       const to = pending.to;
-      window.setTimeout(() => setGame(travelPortal(g2, to)), 260);
+      // Reset the gate inside the timeout (mirrors TownScreen's pad/Home/tree
+      // branches below): zone->zone travel keeps `game.screen === "zone"`, so
+      // React reuses this SAME ZoneScreen instance (no remount to reset the
+      // ref) — leaving `busy.current` stuck `true` forever soft-locked the
+      // player's movement after any in-zone portal travel.
+      window.setTimeout(() => { busy.current = false; setGame(travelPortal(g2, to)); }, 260);
     }
   };
 
