@@ -14,10 +14,16 @@ import { SettingsPanel } from "./shell/settings.js";
 import { HudBar } from "./shell/hud.js";
 import { itemDef, shopFor, SELL_FRACTION } from "game-kit/economy";
 import { ZONE_LABELS } from "./zone.js";
-import { hasSave, loadGame } from "./save.js";
+import { hasSave, loadGame, saveGame } from "./save.js";
 import { TownScene } from "./town-scene.js";
 import { TownDialogue } from "./town-dialogue.js";
-import { villagerById, TOWN_DIRECTION_DELTA, type TownAction, type TownDirection } from "./town.js";
+import {
+  villagerById,
+  TOWN_DIRECTION_DELTA,
+  TOWN_PORTALS,
+  type TownAction,
+  type TownDirection,
+} from "./town.js";
 import { TradeScreen } from "./trade.js";
 import { progressOf } from "game-kit/quest";
 import {
@@ -47,9 +53,10 @@ import {
   usableBattleItems,
   itemTargetId,
   useItemInBattle,
-  enterTown,
-  leaveTown,
-  moveInTown,
+  townStep,
+  openHome,
+  leaveHome,
+  swapPartyMember,
   openTrade,
   offeredQuests,
   acceptGameQuest,
@@ -74,9 +81,9 @@ export function App() {
   const resumedRef = useRef(false);
   // A save the player hasn't yet chosen to load/dismiss this session. Splash
   // (shell/splash.tsx) is NOT ours to edit and always starts a fresh game —
-  // so "Continue" is offered as a Sanctuary affordance instead: computed once
+  // so "Continue" is offered as a Home affordance instead: computed once
   // at mount, cleared the moment the player either loads it or starts playing
-  // for real (any transition away from a freshly-started Sanctuary).
+  // for real (any transition away from a freshly-started game).
   const [saveOffer] = useState(() => (hasSave() ? loadGame() : null));
   const [saveConsumed, setSaveConsumed] = useState(false);
 
@@ -128,15 +135,15 @@ export function App() {
     audio().playUi("confirm");
     setGame((g) => applySave(g, saveOffer));
   };
-  // Diving into ANY Sanctuary action without loading retires the offer — it
+  // Diving into ANY Home action without loading retires the offer — it
   // should only ever appear on a truly fresh boot, never linger once the
   // player has started a fresh playthrough for real.
   const dismissSaveOffer = () => setSaveConsumed(true);
 
   return (
     <div onPointerDown={unlock} style={{ position: "fixed", inset: 0 }}>
-      {game.screen === "party" && (
-        <PartyScreen
+      {game.screen === "home" && (
+        <HomeScreen
           game={game}
           setGame={setGame}
           onPause={() => setPaused(true)}
@@ -182,8 +189,9 @@ export function App() {
 
 type ScreenProps = { game: GameState; setGame: (g: GameState) => void };
 
-// ── Sanctuary / party ─────────────────────────────────────────────────────────
-function PartyScreen({
+// ── Home (party lineup + box management — the retired Sanctuary's successor;
+// reached by walking into the Home building in town, not a landing menu) ───
+function HomeScreen({
   game,
   setGame,
   onPause,
@@ -199,6 +207,7 @@ function PartyScreen({
   onDismissContinue?: () => void;
 }) {
   const party = useMemo(() => partyCreatures(game), [game]);
+  const box = useMemo(() => collectionCreatures(game).filter((c) => !party.some((p) => p.token.id === c.token.id)), [game, party]);
   const placed: Placed[] = party.map((c, i) => ({
     id: c.token.id,
     spec: c.gooberSpec,
@@ -206,56 +215,66 @@ function PartyScreen({
     facing: 0,
     seed: i * 37 + 5,
   }));
-  const [zonePicker, setZonePicker] = useState(false);
+  // Which party member a box swap will bump to storage (only asked when the
+  // party is already full — swapToParty just fills an open slot otherwise).
+  const [swapOutId, setSwapOutId] = useState<string | null>(null);
   useEffect(() => {
     audio().startAmbient("sanctuary-aldercradle");
     return () => audio().stopAmbient();
   }, []);
-  const goTo = (zoneId: string) => {
-    onDismissContinue?.();
+  const partyFull = party.length >= 3;
+  const doSwap = (storageId: string) => {
     audio().playUi("confirm");
-    setGame(enterZone(game, zoneId));
+    setGame(swapPartyMember(game, storageId, partyFull ? (swapOutId ?? party[0]?.token.id) : undefined));
+    setSwapOutId(null);
   };
   return (
     <>
       <GooberStage placed={placed} cameraPos={[0, 6, 34]} fov={28} />
       <div className="overlay">
         <HudBar
-          title="CHIMERA · The Sanctuary"
-          subtitle="Aldercradle is fading — scout, bond, and breed new life."
+          title="CHIMERA · Home"
+          subtitle="Your companions rest here — manage the party and the box."
           dexText={`◈ ${game.economy.gold} · Dex ${dexTotal(game)} · Party ${game.roster.party.length}/3 · Box ${game.roster.storage.length}`}
           party={party}
           onPause={onPause} onSettings={onSettings}
         />
+        {box.length > 0 && (
+          <div
+            className="quest-log"
+            style={{ position: "absolute", top: 92, left: 12, width: 220, display: "flex", flexDirection: "column", gap: 6 }}
+          >
+            <div style={{ fontWeight: 700, fontSize: 12, opacity: 0.75 }}>Box (tap to swap into party)</div>
+            {box.map((c) => (
+              <button
+                key={c.token.id}
+                className="card"
+                style={{ cursor: "pointer", textAlign: "left" }}
+                onClick={() => doSwap(c.token.id)}
+              >
+                <div className="nm"><span>{c.name}</span><span className="rank">{c.rank}</span></div>
+                <div className="hint">{c.family}</div>
+              </button>
+            ))}
+          </div>
+        )}
         <div className="actionbar">
           {canContinue && (
             <button className="act bond" onClick={onContinue}>
               Continue (load last save) ↺
             </button>
           )}
-          {!zonePicker ? (
-            <button className="act primary" onClick={() => setZonePicker(true)}>
-              Explore →
-            </button>
-          ) : (
-            game.unlockedZones.map((zoneId) => (
-              <button key={zoneId} className="act primary" onClick={() => goTo(zoneId)}>
-                {ZONE_LABELS[zoneId] ?? zoneId} →
-              </button>
-            ))
-          )}
-          <button className="act bond" disabled={game.roster.party.length + game.roster.storage.length < 2}
-            onClick={() => { onDismissContinue?.(); audio().playUi("confirm"); setGame(openCradle(game)); }}>
-            The Cradle (breed)
+          <button
+            className="act"
+            onClick={() => { onDismissContinue?.(); audio().playUi("confirm"); saveGame(game); }}
+          >
+            Save ✓
           </button>
-          <button className="act" onClick={() => { onDismissContinue?.(); audio().playUi("confirm"); setGame(openShop(game)); }}>
-            The Market ◈
-          </button>
-          <button className="act" onClick={() => { onDismissContinue?.(); audio().playUi("confirm"); setGame(openDex(game)); }}>
-            Dex 📖
-          </button>
-          <button className="act primary" onClick={() => { onDismissContinue?.(); audio().playUi("confirm"); setGame(enterTown(game)); }}>
-            Enter the Town →
+          <button
+            className="act primary"
+            onClick={() => { onDismissContinue?.(); audio().playUi("back"); setGame(leaveHome(game)); }}
+          >
+            ← Leave home
           </button>
         </div>
         <QuestLog game={game} />
@@ -265,7 +284,7 @@ function PartyScreen({
 }
 
 // A small always-visible active-quest readout (title + a progress bar per
-// active quest) — shown on the Sanctuary HUD, since HudBar itself is a
+// active quest) — shown on the Home/Town HUD, since HudBar itself is a
 // decoupled shell component this task doesn't own. Purely a read of
 // game.quests; Old Tamsin's TownDialogue is still where quests are ACCEPTED.
 function QuestLog({ game }: { game: GameState }) {
@@ -425,31 +444,55 @@ const TOWN_KEY_DIR: Record<string, TownDirection> = {
 
 function TownScreen({ game, setGame, onPause, onSettings, paused }: ScreenProps & { onPause: () => void; onSettings: () => void; paused: boolean }) {
   const [nearId, setNearId] = useState<string | null>(null);
+  const [nearHome, setNearHome] = useState(false);
   const [dialogueVillagerId, setDialogueVillagerId] = useState<string | null>(null);
   const lastStep = useRef(0);
+  // Locked while a pad/Home transition plays its short confirm beat — mirrors
+  // ZoneScreen's `busy` gate so a held key can't double-fire the travel.
+  const busy = useRef(false);
 
   useEffect(() => {
     audio().startAmbient("town-plaza");
     return () => audio().stopAmbient();
   }, []);
 
-  // One step per press, same 135ms rate-limit ZoneScreen's onStep uses — no
-  // "busy" transition lock needed here (the town has no encounters/portals to
-  // animate through, just a plain grid walk), but movement is still gated
-  // while paused OR while the dialogue overlay has focus.
+  const unlockedPortals = useMemo(
+    () => TOWN_PORTALS.filter((p) => game.unlockedZones.includes(p.zoneId)),
+    [game.unlockedZones],
+  );
+
+  // One step per press, same 135ms rate-limit ZoneScreen's onStep uses. Movement
+  // is gated while paused, while the dialogue overlay has focus, or while a
+  // pad/Home transition is already playing (`busy`).
   const onStep = (dir: TownDirection) => {
-    if (paused || dialogueVillagerId) return;
+    if (paused || dialogueVillagerId || busy.current) return;
     const now = performance.now();
     if (now - lastStep.current < 135) return;
     lastStep.current = now;
     const [dx, dy] = TOWN_DIRECTION_DELTA[dir];
-    const g2 = moveInTown(game, dx, dy);
+    const { game: g2, pending } = townStep(game, dx, dy);
     if (g2 !== game) audio().playUi("select");
     setGame(g2);
+
+    if (pending?.kind === "portal") {
+      busy.current = true;
+      audio().playUi("confirm");
+      window.setTimeout(() => { busy.current = false; setGame(enterZone(g2, pending.zoneId)); }, 260);
+    } else if (pending?.kind === "home") {
+      busy.current = true;
+      audio().playUi("confirm");
+      window.setTimeout(() => { busy.current = false; setGame(openHome(g2)); }, 220);
+    }
   };
 
   const tryTalk = () => {
-    if (paused || !nearId || dialogueVillagerId) return;
+    if (paused || busy.current) return;
+    if (nearHome) {
+      audio().playUi("confirm");
+      setGame(openHome(game));
+      return;
+    }
+    if (!nearId || dialogueVillagerId) return;
     audio().playUi("confirm");
     setDialogueVillagerId(nearId);
   };
@@ -465,7 +508,7 @@ function TownScreen({ game, setGame, onPause, onSettings, paused }: ScreenProps 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [game, paused, nearId, dialogueVillagerId]);
+  }, [game, paused, nearId, nearHome, dialogueVillagerId]);
 
   const villager = dialogueVillagerId ? villagerById(dialogueVillagerId) : undefined;
 
@@ -488,11 +531,18 @@ function TownScreen({ game, setGame, onPause, onSettings, paused }: ScreenProps 
 
   return (
     <>
-      <TownScene playerTile={game.townPlayerTile} onMove={onStep} onApproach={setNearId} showApproachHint={!dialogueVillagerId} />
+      <TownScene
+        playerTile={game.townPlayerTile}
+        portals={unlockedPortals}
+        onMove={onStep}
+        onApproach={setNearId}
+        onApproachHome={setNearHome}
+        showApproachHint={!dialogueVillagerId}
+      />
       <div className="overlay">
         <HudBar
           title="CHIMERA · The Town"
-          subtitle="Walk up to a villager and press E to talk."
+          subtitle="Walk to a glowing pad to travel · E at the house for Home · E at a villager to talk."
           dexText={`◈ ${game.economy.gold} · Dex ${dexTotal(game)} · Party ${game.roster.party.length}/3`}
           onPause={onPause} onSettings={onSettings}
         />
@@ -500,7 +550,7 @@ function TownScreen({ game, setGame, onPause, onSettings, paused }: ScreenProps 
         {!dialogueVillagerId && (
           <>
             <div className="hint" style={{ position: "absolute", bottom: 116, left: 0, right: 0, textAlign: "center" }}>
-              ↑↓←→ / WASD to walk · E to talk
+              ↑↓←→ / WASD to walk · step onto a pad to travel · E at the house or a villager
             </div>
             <div className="dpad">
               <button className="pad up" onClick={() => onStep("up")}>▲</button>
@@ -510,18 +560,11 @@ function TownScreen({ game, setGame, onPause, onSettings, paused }: ScreenProps 
             </div>
             <button
               className="act bond"
-              disabled={!nearId}
+              disabled={!nearId && !nearHome}
               style={{ position: "absolute", right: 16, bottom: 16 }}
               onClick={tryTalk}
             >
-              Talk (E)
-            </button>
-            <button
-              className="act"
-              style={{ position: "absolute", left: 16, top: 78 }}
-              onClick={() => { audio().playUi("back"); setGame(leaveTown(game)); }}
-            >
-              ← Leave the Town
+              {nearHome ? "Enter Home (E)" : "Talk (E)"}
             </button>
           </>
         )}
@@ -619,7 +662,7 @@ function BattleScreen({ game, setGame, onPause, onSettings }: ScreenProps & { on
         <div className="actionbar">
           {game.outcome ? (
             <button className="act primary" onClick={() => setGame(game.zone ? returnToZone(game) : leaveBattle(game))}>
-              {game.zone ? `Back to ${ZONE_LABELS[game.zone.descriptor.id] ?? "the zone"} →` : "Return to the Sanctuary →"}
+              {game.zone ? `Back to ${ZONE_LABELS[game.zone.descriptor.id] ?? "the zone"} →` : "Return to the Town →"}
             </button>
           ) : actor && target ? (
             itemMenu ? (
