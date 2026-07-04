@@ -809,14 +809,18 @@ function BattleScreen({ game, setGame, onPause }: ScreenProps & { onPause: () =>
   const rival = game.rivalBattleId ? game.rivals.find((p) => p.rival.id === game.rivalBattleId) : undefined;
   const guardianTitle = game.guardianBattleWorldId && game.zone ? GUARDIAN_TITLE[game.zone.descriptor.id] : undefined;
 
+  // Which command sub-panel is showing: the main command grid, the skills
+  // submenu, or the bag. Nesting skills/items keeps the command bar tidy (a
+  // clean 3-column grid) instead of a crowded wrap that overlapped the cards.
+  const [sub, setSub] = useState<"main" | "skills" | "items">("main");
   const doAction = (act: Parameters<typeof stepBattle>[1]) => {
     audio().playUi("select");
     const { game: g2, events } = stepBattle(game, act);
     playBattleEvents(audio(), events);
+    setSub("main");
     setGame(g2);
   };
   const target = defaultTargetId(b);
-  const [itemMenu, setItemMenu] = useState(false);
   const items = usableBattleItems(game);
   const doItem = (itemId: string) => {
     const tid = itemTargetId(b, itemId);
@@ -824,8 +828,8 @@ function BattleScreen({ game, setGame, onPause }: ScreenProps & { onPause: () =>
     audio().playUi("confirm");
     const { game: g2, events } = useItemInBattle(game, itemId, tid);
     playBattleEvents(audio(), events);
+    setSub("main");
     setGame(g2);
-    setItemMenu(false);
   };
 
   return (
@@ -847,61 +851,64 @@ function BattleScreen({ game, setGame, onPause }: ScreenProps & { onPause: () =>
         <div className="cards enemy">
           {b.enemyTeam.map((c) => <CombatantCard key={c.id} c={c} active={actor?.id === c.id} />)}
         </div>
-        <div className="cards player">
-          {b.playerTeam.map((c) => <CombatantCard key={c.id} c={c} active={actor?.id === c.id} />)}
-        </div>
-        <div className="log">
-          {game.log.map((l, i) => <div key={i}>{l}</div>)}
-        </div>
-        {game.outcome === "guardian-win" && (
-          <div
-            className="banner"
-            style={{ top: "auto", bottom: 74, background: "linear-gradient(transparent, rgba(231,200,106,0.35))", textAlign: "center", justifyContent: "center" }}
-          >
-            <div className="title" style={{ color: "var(--warm-deep)" }}>
-              {guardianTitle} falls — the world's Heartseed is recovered!
-            </div>
-          </div>
-        )}
-        <div className="actionbar">
-          {game.outcome ? (
-            <button className="act primary" onClick={() => setGame(game.zone ? returnToZone(game) : leaveBattle(game))}>
-              {game.zone ? `Back to ${ZONE_LABELS[game.zone.descriptor.id] ?? "the zone"} →` : "Return to the Town →"}
-            </button>
-          ) : actor && target ? (
-            itemMenu ? (
-              <>
-                {items.length === 0 && <div className="hint">No usable items.</div>}
-                {items.map((it) => (
-                  <button key={it.id} className="act" onClick={() => doItem(it.id)}>
-                    {it.name} <small>×{it.count}</small>
-                  </button>
-                ))}
-                <button className="act" onClick={() => setItemMenu(false)}>← Back</button>
-              </>
-            ) : (
-              <>
-                <button className="act primary" onClick={() => doAction({ type: "attack", targetId: target })}>Attack</button>
-                {actor.skills.slice(0, 3).map((s) => (
-                  <button key={s.id} className="act" disabled={actor.currentMp < s.mpCost}
-                    onClick={() => doAction({ type: "skill", skillId: s.id, targetId: target })}>
-                    {s.name} <small>({s.mpCost})</small>
-                  </button>
-                ))}
-                {/* A Guardian is a boss, not a companion to befriend — Scout is
-                    hidden for a Guardian fight so victory is the only path to
-                    its Heartseed. */}
-                {!guardianTitle && (
-                  <button className="act bond" onClick={() => doAction({ type: "scout", targetId: target })}>Scout 🤝</button>
-                )}
-                <button className="act" disabled={items.length === 0} onClick={() => setItemMenu(true)}>Items 🎒</button>
-                <button className="act" onClick={() => doAction({ type: "defend" })}>Defend</button>
-                <button className="act" onClick={() => doAction({ type: "flee" })}>Flee</button>
-              </>
-            )
-          ) : (
-            <div className="hint">…resolving…</div>
+        <div className="battle-bottom">
+          {game.outcome === "guardian-win" && (
+            <div className="battle-victory">{guardianTitle} falls — the world's Heartseed is recovered!</div>
           )}
+          <div className="log">
+            {game.log.slice(-3).map((l, i) => <div key={i}>{l}</div>)}
+          </div>
+          <div className="cards player">
+            {b.playerTeam.map((c) => <CombatantCard key={c.id} c={c} active={actor?.id === c.id} />)}
+          </div>
+          <div className="battle-commands">
+            {game.outcome ? (
+              <button className="act primary" style={{ gridColumn: "1 / -1" }}
+                onClick={() => setGame(game.zone ? returnToZone(game) : leaveBattle(game))}>
+                {game.zone ? `Back to ${ZONE_LABELS[game.zone.descriptor.id] ?? "the zone"} →` : "Return to the Town →"}
+              </button>
+            ) : actor && target ? (
+              sub === "items" ? (
+                <>
+                  {items.length === 0 && <div className="hint" style={{ gridColumn: "1 / -1" }}>No usable items.</div>}
+                  {items.map((it) => (
+                    <button key={it.id} className="act" onClick={() => doItem(it.id)}>
+                      {it.name} <small>×{it.count}</small>
+                    </button>
+                  ))}
+                  <button className="act" onClick={() => setSub("main")}>← Back</button>
+                </>
+              ) : sub === "skills" ? (
+                <>
+                  {actor.skills.slice(0, 5).map((s) => (
+                    <button key={s.id} className="act" disabled={actor.currentMp < s.mpCost}
+                      onClick={() => doAction({ type: "skill", skillId: s.id, targetId: target })}>
+                      {s.name} <small>({s.mpCost})</small>
+                    </button>
+                  ))}
+                  <button className="act" onClick={() => setSub("main")}>← Back</button>
+                </>
+              ) : (
+                <>
+                  <button className="act primary" onClick={() => doAction({ type: "attack", targetId: target })}>Attack</button>
+                  <button className="act" disabled={actor.skills.length === 0}
+                    onClick={() => { audio().playUi("select"); setSub("skills"); }}>Skills ▸</button>
+                  {/* A Guardian is a boss, not a companion to befriend — Scout is
+                      hidden for a Guardian fight so victory is the only path to
+                      its Heartseed. */}
+                  {!guardianTitle && (
+                    <button className="act bond" onClick={() => doAction({ type: "scout", targetId: target })}>Scout 🤝</button>
+                  )}
+                  <button className="act" disabled={items.length === 0}
+                    onClick={() => { audio().playUi("select"); setSub("items"); }}>Bag 🎒</button>
+                  <button className="act" onClick={() => doAction({ type: "defend" })}>Defend</button>
+                  <button className="act" onClick={() => doAction({ type: "flee" })}>Flee</button>
+                </>
+              )
+            ) : (
+              <div className="hint" style={{ gridColumn: "1 / -1" }}>…resolving…</div>
+            )}
+          </div>
         </div>
       </div>
     </>
