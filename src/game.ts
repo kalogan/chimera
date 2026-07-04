@@ -69,8 +69,7 @@ import {
 import {
   TOWN_SPAWN,
   isTownWalkable,
-  portalAt,
-  dormantPadAt,
+  worldPadAt,
   TOWN_HOME_TILE,
   TOWN_TREE_TILE,
 } from "./town.js";
@@ -80,6 +79,7 @@ import {
   awardHeartseed,
   healedCount,
   isTreeWhole,
+  isWorldUnlocked,
   worldForZone,
   type Heartseeds,
 } from "./worldtree.js";
@@ -124,11 +124,15 @@ export interface GameState {
   // consume on the way back (null for a tall-grass encounter).
   zone: ZoneState | null;
   zoneReturnRoamerId: string | null;
-  // Wave 5: the small world map. Zone ids the player has unlocked/can travel to —
-  // Meadowmere is always unlocked; the others open the first time their portal is
-  // reached (a portal is always walkable, so in practice all three are reachable
-  // from the start via the travel graph, but this also drives the Sanctuary's
-  // "Explore" zone picker and survives a save round-trip).
+  // Wave 5: the small world map. Zone ids the player has VISITED at least
+  // once (bumped by `enterZone` the first time its portal is reached) — kept
+  // for save-shape compatibility and as visited-zone bookkeeping, but NO
+  // LONGER what gates a TOWN PAD's travel: that's now derived purely from the
+  // Aldercradle's linear unlock chain (worldtree.ts's `isWorldUnlocked`,
+  // keyed off `heartseeds`) — see `townStep` below. A zone reached in-world
+  // via another zone's own portal (e.g. Meadowmere -> Skyreach's onward
+  // portal) still gets added here even though its town PAD stays dormant
+  // until the chain says otherwise; the two lists intentionally diverge.
   unlockedZones: string[];
   // Wave 3: currency + inventory (the Market). Gold is earned from encounters;
   // items are bought here and (next slice) used in battle.
@@ -202,8 +206,13 @@ export const GAME_QUESTS: readonly QuestDef[] = [
     title: "Compendium",
     giver: "questgiver",
     description: "Discover 10 species for the Dex.",
+    // Was an early `unlockZone: "tidewrack"` reward — retired now that the
+    // Aldercradle's linear WORLD_ORDER chain (worldtree.ts) is the ONLY
+    // unlock path for a world's pad (beat the prior Guardian), so a quest
+    // reward can no longer hand out a zone early. Gold keeps this quest
+    // worth completing without conflicting with the chain rule.
     objective: { kind: "dex", count: 10 },
-    reward: { unlockZone: "tidewrack" },
+    reward: { gold: 120 },
     prereq: "q-reach-emberdeep",
   },
   {
@@ -811,7 +820,8 @@ export function moveInTown(g: GameState, dx: number, dy: number): GameState {
  *  mirrors `ZonePending`'s shape so `TownScreen`'s onStep can drive the same
  *  "play a cue, short delay, then transition" beat ZoneScreen already uses
  *  for its golden-ring portals. `dormant` never transitions anywhere — it's
- *  just a hint beat ("this world still sleeps") for a not-yet-built world's pad. */
+ *  just a hint beat ("this world still sleeps") for a world pad the
+ *  Aldercradle chain (worldtree.ts's `isWorldUnlocked`) hasn't opened yet. */
 export type TownPending =
   | { kind: "portal"; zoneId: string }
   | { kind: "home" }
@@ -820,9 +830,12 @@ export type TownPending =
   | null;
 
 /** Move in town, additionally reporting a pending transition if the player's
- *  NEW tile lands on a zone teleporter pad, the Home building's door tile, the
- *  Aldercradle, or a dormant future-world pad. A no-op move (blocked step)
- *  never reports a pending transition. */
+ *  NEW tile lands on a world pad (active -> `portal`, dormant -> `dormant`),
+ *  the Home building's door tile, or the Aldercradle. A no-op move (blocked
+ *  step) never reports a pending transition. Active-vs-dormant is derived
+ *  fresh from `g.heartseeds` every call (worldtree.ts's `isWorldUnlocked`) —
+ *  never a separately persisted flag, so it can't drift out of sync with the
+ *  Aldercradle panel's own progress readout. */
 export function townStep(
   g: GameState,
   dx: number,
@@ -831,19 +844,18 @@ export function townStep(
   const next = moveInTown(g, dx, dy);
   if (next === g) return { game: next, pending: null };
   const [x, y] = next.townPlayerTile;
-  const pad = portalAt(x, y);
-  if (pad && g.unlockedZones.includes(pad.zoneId)) {
-    return { game: next, pending: { kind: "portal", zoneId: pad.zoneId } };
+  const pad = worldPadAt(x, y);
+  if (pad) {
+    if (isWorldUnlocked(g.heartseeds, pad.worldId)) {
+      return { game: next, pending: { kind: "portal", zoneId: pad.zoneId } };
+    }
+    return { game: next, pending: { kind: "dormant", label: pad.label } };
   }
   if (x === TOWN_HOME_TILE[0] && y === TOWN_HOME_TILE[1]) {
     return { game: next, pending: { kind: "home" } };
   }
   if (x === TOWN_TREE_TILE[0] && y === TOWN_TREE_TILE[1]) {
     return { game: next, pending: { kind: "tree" } };
-  }
-  const dormant = dormantPadAt(x, y);
-  if (dormant) {
-    return { game: next, pending: { kind: "dormant", label: dormant.label } };
   }
   return { game: next, pending: null };
 }

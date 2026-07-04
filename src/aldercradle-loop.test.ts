@@ -1,10 +1,10 @@
 /**
  * aldercradle-loop — proof of the town-side Aldercradle wiring: walking onto
  * the tree tile reports a `tree` pending (opened via openAldercradle),
- * walking onto a dormant pad reports a `dormant` pending (never travels),
- * and the 8/8 endgame gate only opens the finale once every world is healed
- * — `openFinale` is a no-op otherwise, so there's no way to reach it early
- * even if a button were somehow shown.
+ * walking onto a not-yet-unlocked world's pad reports a `dormant` pending
+ * (never travels), and the 8/8 endgame gate only opens the finale once every
+ * world is healed — `openFinale` is a no-op otherwise, so there's no way to
+ * reach it early even if a button were somehow shown.
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -18,8 +18,8 @@ import {
   leaveFinale,
   awardWorldHeartseed,
 } from "./game.js";
-import { TOWN_TREE_TILE, TOWN_DORMANT_PADS } from "./town.js";
-import { WORLDS } from "./worldtree.js";
+import { TOWN_TREE_TILE, TOWN_WORLD_PADS } from "./town.js";
+import { WORLDS, isWorldUnlocked } from "./worldtree.js";
 
 describe("townStep reports the Aldercradle tree pending", () => {
   it("stepping onto TOWN_TREE_TILE reports { kind: 'tree' }", () => {
@@ -40,10 +40,12 @@ describe("townStep reports the Aldercradle tree pending", () => {
   });
 });
 
-describe("townStep reports a dormant pending for a roadmap world's pad", () => {
-  it("stepping onto a dormant pad never travels — just reports the pad's label", () => {
+describe("townStep reports a dormant pending for a not-yet-unlocked world's pad", () => {
+  it("stepping onto a locked world's pad never travels — just reports the pad's label", () => {
     const g = newGame();
-    const pad = TOWN_DORMANT_PADS[0]!;
+    // A fresh game only has Meadowmere (chain index 0) unlocked — every other
+    // world's pad is dormant, so grab any one of them.
+    const pad = TOWN_WORLD_PADS.find((p) => !isWorldUnlocked(g.heartseeds, p.worldId))!;
     const [px, py] = pad.tile;
     const staged = { ...g, townPlayerTile: [px, py - 1] as [number, number] };
     const { game: g2, pending } = townStep(staged, 0, 1);

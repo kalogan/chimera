@@ -20,12 +20,11 @@ import { TownDialogue } from "./town-dialogue.js";
 import {
   villagerById,
   TOWN_DIRECTION_DELTA,
-  TOWN_PORTALS,
-  TOWN_DORMANT_PADS,
+  TOWN_WORLD_PADS,
   type TownAction,
   type TownDirection,
 } from "./town.js";
-import { WORLDS, isHealed } from "./worldtree.js";
+import { WORLDS, isHealed, isWorldUnlocked } from "./worldtree.js";
 import { TradeScreen } from "./trade.js";
 import { progressOf } from "game-kit/quest";
 import {
@@ -467,9 +466,17 @@ function TownScreen({ game, setGame, onPause, paused }: ScreenProps & { onPause:
     return () => audio().stopAmbient();
   }, []);
 
-  const unlockedPortals = useMemo(
-    () => TOWN_PORTALS.filter((p) => game.unlockedZones.includes(p.zoneId)),
-    [game.unlockedZones],
+  // Active vs. dormant is derived FRESH from `heartseeds` every render
+  // (worldtree.ts's `isWorldUnlocked`, the Aldercradle's linear chain) —
+  // never a persisted flag, so a Guardian win auto-flips a pad active the
+  // very next render with no extra wiring.
+  const activeWorldPads = useMemo(
+    () => TOWN_WORLD_PADS.filter((p) => isWorldUnlocked(game.heartseeds, p.worldId)),
+    [game.heartseeds],
+  );
+  const dormantWorldPads = useMemo(
+    () => TOWN_WORLD_PADS.filter((p) => !isWorldUnlocked(game.heartseeds, p.worldId)),
+    [game.heartseeds],
   );
 
   // One step per press, same 135ms rate-limit ZoneScreen's onStep uses. Movement
@@ -557,8 +564,8 @@ function TownScreen({ game, setGame, onPause, paused }: ScreenProps & { onPause:
     <>
       <TownScene
         playerTile={game.townPlayerTile}
-        portals={unlockedPortals}
-        dormantPads={TOWN_DORMANT_PADS}
+        activePads={activeWorldPads}
+        dormantPads={dormantWorldPads}
         healedCount={treeHealedCount(game)}
         onMove={onStep}
         onApproach={setNearId}
@@ -646,20 +653,20 @@ function AldercradleScreen({ game, setGame }: ScreenProps) {
         <div className="shop-list">
           {WORLDS.map((w) => {
             const done = isHealed(game.heartseeds, w.id);
-            const built = w.zoneId !== null;
+            const unlocked = isWorldUnlocked(game.heartseeds, w.id);
             return (
-              <div key={w.id} className="shop-row" style={{ opacity: built ? 1 : 0.6 }}>
+              <div key={w.id} className="shop-row" style={{ opacity: unlocked ? 1 : 0.6 }}>
                 <div className="shop-info">
                   <div className="shop-name">
-                    {done ? "🌟 " : built ? "🗡️ " : "💤 "}
+                    {done ? "🌟 " : unlocked ? "🗡️ " : "💤 "}
                     {w.label}
                   </div>
                   <div className="hint">
                     {done
                       ? `${w.seedName} recovered — this world is healed.`
-                      : built
+                      : unlocked
                         ? "A Guardian still awaits, deep in this world."
-                        : "Still lost to the Fading — no path there yet."}
+                        : "Still lost to the Fading — the path here isn't open yet."}
                   </div>
                   <div className="hint" style={{ fontStyle: "italic", opacity: 0.85 }}>{w.lore}</div>
                 </div>

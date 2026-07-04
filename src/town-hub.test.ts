@@ -18,7 +18,7 @@ import {
   togglePick,
   breedPicked,
 } from "./game.js";
-import { TOWN_PORTALS, TOWN_HOME_TILE, TOWN_SPAWN } from "./town.js";
+import { TOWN_WORLD_PADS, TOWN_HOME_TILE, TOWN_SPAWN } from "./town.js";
 
 describe("a fresh game lands in the Town", () => {
   it("newGame's initial screen is town, at the spawn tile", () => {
@@ -29,14 +29,15 @@ describe("a fresh game lands in the Town", () => {
 });
 
 describe("townStep — walking onto a pad or the Home door", () => {
-  it("reports a portal pending only once the pad's zone is unlocked", () => {
+  it("reports a portal pending only once the pad's world is unlocked (chain-derived)", () => {
     let g = newGame();
-    const meadow = TOWN_PORTALS.find((p) => p.zoneId === "meadowmere")!;
-    // Meadowmere is unlocked from the start, so walking there onto its pad
-    // (from wherever the spawn puts us) should eventually report pending.
-    // Drive the player directly adjacent to the pad via repeated relative
-    // steps isn't robust to map layout, so instead assert the lower-level
-    // contract: townStep from a tile one step away from the pad reports it.
+    const meadow = TOWN_WORLD_PADS.find((p) => p.zoneId === "meadowmere")!;
+    // Meadowmere (chain index 0) is unlocked from the start, so walking there
+    // onto its pad (from wherever the spawn puts us) should eventually report
+    // pending. Drive the player directly adjacent to the pad via repeated
+    // relative steps isn't robust to map layout, so instead assert the
+    // lower-level contract: townStep from a tile one step away from the pad
+    // reports it.
     const [px, py] = meadow.tile;
     // Approach from below (dy=+1 relative), i.e. start one tile above the pad.
     g = { ...g, townPlayerTile: [px, py - 1] };
@@ -45,14 +46,16 @@ describe("townStep — walking onto a pad or the Home door", () => {
     expect(pending).toEqual({ kind: "portal", zoneId: "meadowmere" });
   });
 
-  it("never reports a pad for a zone the player hasn't unlocked", () => {
+  it("reports a DORMANT pending (never a portal) for a world the chain hasn't unlocked yet", () => {
+    // Emberdeep is chain index 5 (dragon) — deep in the WORLD_ORDER chain, so
+    // a fresh game (only Meadowmere healed-less-prev, i.e. only index 0
+    // unlocked) reports it dormant rather than a travelable portal.
     const g = newGame();
-    expect(g.unlockedZones).toEqual(["meadowmere"]);
-    const ember = TOWN_PORTALS.find((p) => p.zoneId === "emberdeep")!;
+    const ember = TOWN_WORLD_PADS.find((p) => p.zoneId === "emberdeep")!;
     const [ex, ey] = ember.tile;
     const staged = { ...g, townPlayerTile: [ex, ey - 1] as [number, number] };
     const { pending } = townStep(staged, 0, 1);
-    expect(pending).toBeNull();
+    expect(pending).toEqual({ kind: "dormant", label: ember.label });
   });
 
   it("reports a home pending when the player steps onto the Home door tile", () => {
