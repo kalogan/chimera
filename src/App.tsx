@@ -13,6 +13,11 @@ import { HudBar } from "./shell/hud.js";
 import { itemDef, shopFor, SELL_FRACTION } from "game-kit/economy";
 import { ZONE_LABELS } from "./zone.js";
 import { hasSave, loadGame } from "./save.js";
+import { TownScene } from "./town-scene.js";
+import { TownDialogue } from "./town-dialogue.js";
+import { villagerById, TOWN_DIRECTION_DELTA, type TownAction, type TownDirection } from "./town.js";
+import { TradeScreen } from "./trade.js";
+import { progressOf } from "game-kit/quest";
 import {
   newGame,
   applySave,
@@ -40,6 +45,13 @@ import {
   usableBattleItems,
   itemTargetId,
   useItemInBattle,
+  enterTown,
+  leaveTown,
+  moveInTown,
+  openTrade,
+  offeredQuests,
+  acceptGameQuest,
+  GAME_QUESTS,
   type GameState,
 } from "./game.js";
 
@@ -128,6 +140,10 @@ export function App() {
       {game.screen === "shop" && <ShopScreen game={game} setGame={setGame} />}
       {game.screen === "dex" && <DexScreen game={game} onBack={() => setGame(backToParty(game))} />}
       {game.screen === "newborn" && <NewbornScreen game={game} setGame={setGame} />}
+      {game.screen === "town" && <TownScreen game={game} setGame={setGame} onPause={() => setPaused(true)} paused={paused} />}
+      {game.screen === "trade" && (
+        <TradeScreen game={game} setGame={setGame} onBack={() => setGame({ ...game, screen: "town" })} />
+      )}
       {paused && (
         <PauseOverlay
           onResume={() => setPaused(false)}
@@ -214,9 +230,61 @@ function PartyScreen({
           <button className="act" onClick={() => { onDismissContinue?.(); audio().playUi("confirm"); setGame(openDex(game)); }}>
             Dex 📖
           </button>
+          <button className="act primary" onClick={() => { onDismissContinue?.(); audio().playUi("confirm"); setGame(enterTown(game)); }}>
+            Enter the Town →
+          </button>
         </div>
+        <QuestLog game={game} />
       </div>
     </>
+  );
+}
+
+// A small always-visible active-quest readout (title + a progress bar per
+// active quest) — shown on the Sanctuary HUD, since HudBar itself is a
+// decoupled shell component this task doesn't own. Purely a read of
+// game.quests; Old Tamsin's TownDialogue is still where quests are ACCEPTED.
+function QuestLog({ game }: { game: GameState }) {
+  const activeIds = Object.keys(game.quests.active);
+  if (activeIds.length === 0) return null;
+  const defs = GAME_QUESTS.filter((d) => activeIds.includes(d.id));
+  return (
+    <div
+      className="quest-log"
+      style={{
+        position: "absolute",
+        top: 92,
+        right: 12,
+        width: 240,
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+        pointerEvents: "none",
+      }}
+    >
+      {defs.map((def) => {
+        const { done, target } = progressOf(def, game.quests);
+        const pct = target > 0 ? Math.min(100, (done / target) * 100) : 0;
+        return (
+          <div
+            key={def.id}
+            style={{
+              background: "rgba(247,239,226,0.88)",
+              border: "1px solid #c9762e",
+              borderRadius: 10,
+              padding: "6px 10px",
+              fontSize: 11,
+            }}
+          >
+            <div style={{ fontWeight: 700 }}>{def.title}</div>
+            <div style={{ height: 5, background: "rgba(0,0,0,0.12)", borderRadius: 999, marginTop: 4 }}>
+              <div style={{ width: `${pct}%`, height: "100%", background: "#6fb98f", borderRadius: 999 }} />
+            </div>
+            <div style={{ opacity: 0.7, marginTop: 2 }}>{done}/{target}</div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -316,6 +384,130 @@ function ZoneScreen({ game, setGame, onPause, paused }: ScreenProps & { onPause:
           <button className="pad down" onClick={() => onStep("down")}>▼</button>
         </div>
       </div>
+    </>
+  );
+}
+
+// ── TOWN (walkable plaza hub) ────────────────────────────────────────────────
+const TOWN_KEY_DIR: Record<string, TownDirection> = {
+  ArrowUp: "up", KeyW: "up",
+  ArrowDown: "down", KeyS: "down",
+  ArrowLeft: "left", KeyA: "left",
+  ArrowRight: "right", KeyD: "right",
+};
+
+function TownScreen({ game, setGame, onPause, paused }: ScreenProps & { onPause: () => void; paused: boolean }) {
+  const [nearId, setNearId] = useState<string | null>(null);
+  const [dialogueVillagerId, setDialogueVillagerId] = useState<string | null>(null);
+  const lastStep = useRef(0);
+
+  useEffect(() => {
+    audio().startAmbient("town-plaza");
+    return () => audio().stopAmbient();
+  }, []);
+
+  // One step per press, same 135ms rate-limit ZoneScreen's onStep uses — no
+  // "busy" transition lock needed here (the town has no encounters/portals to
+  // animate through, just a plain grid walk), but movement is still gated
+  // while paused OR while the dialogue overlay has focus.
+  const onStep = (dir: TownDirection) => {
+    if (paused || dialogueVillagerId) return;
+    const now = performance.now();
+    if (now - lastStep.current < 135) return;
+    lastStep.current = now;
+    const [dx, dy] = TOWN_DIRECTION_DELTA[dir];
+    const g2 = moveInTown(game, dx, dy);
+    if (g2 !== game) audio().playUi("select");
+    setGame(g2);
+  };
+
+  const tryTalk = () => {
+    if (paused || !nearId || dialogueVillagerId) return;
+    audio().playUi("confirm");
+    setDialogueVillagerId(nearId);
+  };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (paused) return; // the pause overlay owns input while it's up
+      if (dialogueVillagerId) return; // TownDialogue's own listeners own focus/Esc
+      const dir = TOWN_KEY_DIR[e.code];
+      if (dir) { e.preventDefault(); onStep(dir); return; }
+      if (e.code === "KeyE") { e.preventDefault(); tryTalk(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game, paused, nearId, dialogueVillagerId]);
+
+  const villager = dialogueVillagerId ? villagerById(dialogueVillagerId) : undefined;
+
+  const handleAction = (action: TownAction) => {
+    if (action.kind === "talk") return; // pure banter — stay in the dialogue
+    // 'quests' has no role BUTTON in town-dialogue.tsx (ROLE_BUTTON_LABEL.
+    // questgiver is undefined) — the offered-quests list + Accept buttons ARE
+    // the affordance, rendered inline while the dialogue stays open. Every
+    // other target routes to a real screen, closing the dialogue first.
+    if (action.target === "quests") return;
+    setDialogueVillagerId(null);
+    audio().playUi("confirm");
+    switch (action.target) {
+      case "shop": setGame(openShop(game)); break;
+      case "cradle": setGame(openCradle(game)); break;
+      case "dex": setGame(openDex(game)); break;
+      case "trade": setGame(openTrade(game)); break;
+    }
+  };
+
+  return (
+    <>
+      <TownScene playerTile={game.townPlayerTile} onMove={onStep} onApproach={setNearId} showApproachHint={!dialogueVillagerId} />
+      <div className="overlay">
+        <HudBar
+          title="CHIMERA · The Town"
+          subtitle="Walk up to a villager and press E to talk."
+          dexText={`◈ ${game.economy.gold} · Dex ${dexTotal(game)} · Party ${game.roster.party.length}/3`}
+          onPause={onPause}
+        />
+        <QuestLog game={game} />
+        {!dialogueVillagerId && (
+          <>
+            <div className="hint" style={{ position: "absolute", bottom: 116, left: 0, right: 0, textAlign: "center" }}>
+              ↑↓←→ / WASD to walk · E to talk
+            </div>
+            <div className="dpad">
+              <button className="pad up" onClick={() => onStep("up")}>▲</button>
+              <button className="pad left" onClick={() => onStep("left")}>◀</button>
+              <button className="pad right" onClick={() => onStep("right")}>▶</button>
+              <button className="pad down" onClick={() => onStep("down")}>▼</button>
+            </div>
+            <button
+              className="act bond"
+              disabled={!nearId}
+              style={{ position: "absolute", right: 16, bottom: 16 }}
+              onClick={tryTalk}
+            >
+              Talk (E)
+            </button>
+            <button
+              className="act"
+              style={{ position: "absolute", left: 16, top: 78 }}
+              onClick={() => { audio().playUi("back"); setGame(leaveTown(game)); }}
+            >
+              ← Leave the Town
+            </button>
+          </>
+        )}
+      </div>
+      {villager && (
+        <TownDialogue
+          villager={villager}
+          onAction={handleAction}
+          onClose={() => setDialogueVillagerId(null)}
+          offeredQuests={villager.role === "questgiver" ? offeredQuests(game) : undefined}
+          onAcceptQuest={(id) => { audio().playUi("confirm"); setGame(acceptGameQuest(game, id)); }}
+        />
+      )}
     </>
   );
 }
