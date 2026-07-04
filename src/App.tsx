@@ -4,6 +4,7 @@ import type { BattleState, Combatant } from "game-kit/battle";
 import type { Dir } from "game-kit/world-runtime";
 import { GooberStage, type Placed } from "./GooberStage.js";
 import { ZoneScene } from "./ZoneScene.js";
+import { DexScreen } from "./dex.js";
 import { audio, resumeAudio } from "./audio.js";
 import { playBattleEvents } from "./battle-audio.js";
 import { Splash } from "./shell/splash.js";
@@ -33,6 +34,7 @@ import {
   breedPicked,
   backToParty,
   openShop,
+  openDex,
   buyItem,
   sellItem,
   usableBattleItems,
@@ -124,6 +126,7 @@ export function App() {
       {game.screen === "battle" && <BattleScreen game={game} setGame={setGame} onPause={() => setPaused(true)} />}
       {game.screen === "cradle" && <CradleScreen game={game} setGame={setGame} />}
       {game.screen === "shop" && <ShopScreen game={game} setGame={setGame} />}
+      {game.screen === "dex" && <DexScreen game={game} onBack={() => setGame(backToParty(game))} />}
       {game.screen === "newborn" && <NewbornScreen game={game} setGame={setGame} />}
       {paused && (
         <PauseOverlay
@@ -207,6 +210,9 @@ function PartyScreen({
           </button>
           <button className="act" onClick={() => { onDismissContinue?.(); audio().playUi("confirm"); setGame(openShop(game)); }}>
             The Market ◈
+          </button>
+          <button className="act" onClick={() => { onDismissContinue?.(); audio().playUi("confirm"); setGame(openDex(game)); }}>
+            Dex 📖
           </button>
         </div>
       </div>

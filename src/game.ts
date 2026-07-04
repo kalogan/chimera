@@ -55,7 +55,7 @@ import {
 } from "./rivals.js";
 import { saveGame, type SaveData } from "./save.js";
 
-export type Screen = "party" | "zone" | "battle" | "cradle" | "newborn" | "shop";
+export type Screen = "party" | "zone" | "battle" | "cradle" | "newborn" | "shop" | "dex";
 
 // Gold earned when a wild encounter resolves — winning is worth more than
 // befriending (scouting already rewards you with the creature itself).
@@ -545,6 +545,12 @@ export function breedPicked(g: GameState): GameState {
 
 export function backToParty(g: GameState): GameState {
   return { ...g, screen: "party", cradlePick: [], newborn: null };
+}
+
+// ── The Dex (Wave 5) ─────────────────────────────────────────────────────────
+
+export function openDex(g: GameState): GameState {
+  return { ...g, screen: "dex" };
 }
 
 // ── The Market (Wave 3) ────────────────────────────────────────────────────────
