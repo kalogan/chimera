@@ -216,6 +216,39 @@ export function villagerById(id: string): TownVillager | undefined {
   return TOWN_VILLAGERS.find((v) => v.id === id);
 }
 
+// ── zone teleporter pads ─────────────────────────────────────────────────────
+
+/** A walkable teleporter pad in the plaza: step onto its tile to travel to
+ *  `zoneId`. One pad per overworld zone (see zone.ts's ZONE_IDS/ZONE_LABELS),
+ *  spread around the plaza's outer corners so they read as distinct
+ *  destinations rather than a cluster. Only rendered/active for zones the
+ *  player has UNLOCKED (game.ts's `unlockedZones`) — Meadowmere's pad is
+ *  always available since it's unlocked from a fresh game. */
+export interface TownPortal {
+  zoneId: string;
+  tile: [number, number];
+  label: string;
+}
+
+export const TOWN_PORTALS: TownPortal[] = [
+  { zoneId: "meadowmere", tile: [1, 1], label: "Meadowmere" },
+  { zoneId: "emberdeep", tile: [11, 1], label: "Emberdeep" },
+  { zoneId: "tidewrack", tile: [1, 9], label: "Tidewrack" },
+];
+
+/** The pad standing on `[x, y]`, or undefined if no pad occupies that tile. */
+export function portalAt(x: number, y: number): TownPortal | undefined {
+  return TOWN_PORTALS.find((p) => p.tile[0] === x && p.tile[1] === y);
+}
+
+// ── the Home building (party/box management — replaces the old Sanctuary landing) ─
+
+/** The Home building's door tile — walk onto it, or stand adjacent and press
+ *  E (mirroring the villager-talk interaction), to open the HomeScreen. A
+ *  clear, uncrowded floor tile north of the plaza so it reads as its own
+ *  little house, not a villager. */
+export const TOWN_HOME_TILE: [number, number] = [6, 2];
+
 /** The four cardinal step directions `town-scene.tsx`'s `onMove` accepts. */
 export type TownDirection = "up" | "down" | "left" | "right";
 
