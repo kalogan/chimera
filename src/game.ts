@@ -31,9 +31,21 @@ import {
   type ZoneEvent,
   type Dir,
 } from "game-kit/world-runtime";
+import {
+  createEconomy,
+  addGold,
+  buy,
+  sell,
+  type EconomyState,
+} from "game-kit/economy";
 import { MEADOWMERE } from "./zone.js";
 
-export type Screen = "party" | "zone" | "battle" | "cradle" | "newborn";
+export type Screen = "party" | "zone" | "battle" | "cradle" | "newborn" | "shop";
+
+// Gold earned when a wild encounter resolves — winning is worth more than
+// befriending (scouting already rewards you with the creature itself).
+const GOLD_WIN = 28;
+const GOLD_SCOUT = 16;
 export type Outcome = "win" | "lose" | "scouted" | "fled" | null;
 
 export interface GameState {
@@ -53,6 +65,9 @@ export interface GameState {
   // on the way back (null for a tall-grass encounter).
   zone: ZoneState | null;
   zoneReturnRoamerId: string | null;
+  // Wave 3: currency + inventory (the Market). Gold is earned from encounters;
+  // items are bought here and (next slice) used in battle.
+  economy: EconomyState;
 }
 
 // Three balanced rank-C starter companions (scanned for viable, non-godlike stats).
@@ -78,6 +93,7 @@ export function newGame(): GameState {
     breedSeed: 1,
     zone: null,
     zoneReturnRoamerId: null,
+    economy: createEconomy({ gold: 120, items: { "healing-herb": 2 } }),
   };
 }
 
@@ -269,6 +285,7 @@ export function stepBattle(
   }
 
   let roster = g.roster;
+  let economy = g.economy;
   let outcome: Outcome = g.outcome;
   let screen: Screen = g.screen;
 
@@ -279,8 +296,10 @@ export function stepBattle(
 
   if (scouted && g.wildToken) {
     roster = addCreature(roster, g.wildToken);
+    economy = addGold(economy, GOLD_SCOUT);
     outcome = "scouted";
   } else if (won) {
+    economy = addGold(economy, GOLD_WIN);
     outcome = "win";
   } else if (lost) {
     outcome = "lose";
@@ -291,7 +310,7 @@ export function stepBattle(
   if (outcome) screen = "battle"; // stay to show the result banner; player taps Continue
 
   return {
-    game: { ...g, battle: state, roster, outcome, screen, log: newLog.slice(-8) },
+    game: { ...g, battle: state, roster, economy, outcome, screen, log: newLog.slice(-8) },
     events,
   };
 }
@@ -342,4 +361,20 @@ export function breedPicked(g: GameState): GameState {
 
 export function backToParty(g: GameState): GameState {
   return { ...g, screen: "party", cradlePick: [], newborn: null };
+}
+
+// ── The Market (Wave 3) ────────────────────────────────────────────────────────
+
+export function openShop(g: GameState): GameState {
+  return { ...g, screen: "shop" };
+}
+
+export function buyItem(g: GameState, id: string): GameState {
+  const { state, ok } = buy(g.economy, id, 1);
+  return ok ? { ...g, economy: state } : g;
+}
+
+export function sellItem(g: GameState, id: string): GameState {
+  const { state, ok } = sell(g.economy, id, 1);
+  return ok ? { ...g, economy: state } : g;
 }

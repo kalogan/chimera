@@ -173,3 +173,19 @@ button.act.bond { border-color: var(--bond); }
 .pause-panel h2 { margin: 0 0 14px; }
 .pause-menu { display: flex; flex-direction: column; gap: 10px; }
 .pause-menu .act { width: 100%; }
+
+/* The Market (shop) — a scrollable item list */
+.shop-list {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  top: 92px; bottom: 84px; width: min(560px, 94vw);
+  overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
+  padding: 4px;
+}
+.shop-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: var(--panel); border-radius: 12px; padding: 10px 14px; box-shadow: var(--shadow);
+}
+.shop-info { min-width: 0; }
+.shop-name { font-weight: 700; color: var(--warm-deep); }
+.shop-name small { opacity: 0.6; font-weight: 600; }
+.shop-buy { display: flex; gap: 6px; flex: none; }

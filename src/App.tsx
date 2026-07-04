@@ -9,6 +9,7 @@ import { playBattleEvents } from "./battle-audio.js";
 import { Splash } from "./shell/splash.js";
 import { PauseOverlay } from "./shell/pause.js";
 import { HudBar } from "./shell/hud.js";
+import { itemDef, shopFor, SELL_FRACTION } from "game-kit/economy";
 import {
   newGame,
   partyCreatures,
@@ -27,6 +28,9 @@ import {
   togglePick,
   breedPicked,
   backToParty,
+  openShop,
+  buyItem,
+  sellItem,
   type GameState,
 } from "./game.js";
 
@@ -84,6 +88,7 @@ export function App() {
       {game.screen === "zone" && <ZoneScreen game={game} setGame={setGame} onPause={() => setPaused(true)} paused={paused} />}
       {game.screen === "battle" && <BattleScreen game={game} setGame={setGame} onPause={() => setPaused(true)} />}
       {game.screen === "cradle" && <CradleScreen game={game} setGame={setGame} />}
+      {game.screen === "shop" && <ShopScreen game={game} setGame={setGame} />}
       {game.screen === "newborn" && <NewbornScreen game={game} setGame={setGame} />}
       {paused && (
         <PauseOverlay
@@ -122,7 +127,7 @@ function PartyScreen({ game, setGame, onPause }: ScreenProps & { onPause: () => 
         <HudBar
           title="CHIMERA · The Sanctuary"
           subtitle="Aldercradle is fading — scout, bond, and breed new life."
-          dexText={`Dex ${dexTotal(game)} · Party ${game.roster.party.length}/3 · Box ${game.roster.storage.length}`}
+          dexText={`◈ ${game.economy.gold} · Dex ${dexTotal(game)} · Party ${game.roster.party.length}/3 · Box ${game.roster.storage.length}`}
           party={party}
           onPause={onPause}
         />
@@ -133,6 +138,9 @@ function PartyScreen({ game, setGame, onPause }: ScreenProps & { onPause: () => 
           <button className="act bond" disabled={game.roster.party.length + game.roster.storage.length < 2}
             onClick={() => { audio().playUi("confirm"); setGame(openCradle(game)); }}>
             The Cradle (breed)
+          </button>
+          <button className="act" onClick={() => { audio().playUi("confirm"); setGame(openShop(game)); }}>
+            The Market ◈
           </button>
         </div>
       </div>
@@ -352,6 +360,55 @@ function CradleScreen({ game, setGame }: ScreenProps) {
             onClick={() => { audio().playUi("confirm"); setGame(breedPicked(game)); }}>
             Weave new life ✦
           </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── The Market (Wave 3) ──────────────────────────────────────────────────────
+function ShopScreen({ game, setGame }: ScreenProps) {
+  const stock = shopFor(0); // early tier for Meadowmere
+  const gold = game.economy.gold;
+  const owned = (id: string) => game.economy.items[id] ?? 0;
+  return (
+    <>
+      <GooberStage placed={[]} cameraPos={[0, 5, 20]} fov={30} bg="#efe0c2" ground="#d8c49a" />
+      <div className="overlay">
+        <div className="banner">
+          <div>
+            <div className="title">The Market</div>
+            <div className="subtitle">Stock up before you wander — the wild is generous, but not kind.</div>
+          </div>
+          <div className="dex">◈ {gold} gold</div>
+        </div>
+        <div className="shop-list">
+          {stock.map((id) => {
+            const def = itemDef(id);
+            if (!def) return null;
+            const canBuy = gold >= def.price;
+            return (
+              <div key={id} className="shop-row">
+                <div className="shop-info">
+                  <div className="shop-name">{def.name} {owned(id) > 0 && <small>×{owned(id)}</small>}</div>
+                  <div className="hint">{def.desc}</div>
+                </div>
+                <div className="shop-buy">
+                  <button className="act" disabled={owned(id) === 0}
+                    onClick={() => { audio().playUi("back"); setGame(sellItem(game, id)); }}>
+                    Sell ◈{Math.floor(def.price * SELL_FRACTION)}
+                  </button>
+                  <button className="act primary" disabled={!canBuy}
+                    onClick={() => { audio().playUi("confirm"); setGame(buyItem(game, id)); }}>
+                    Buy ◈{def.price}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="actionbar">
+          <button className="act" onClick={() => { audio().playUi("back"); setGame(backToParty(game)); }}>← Back</button>
         </div>
       </div>
     </>
