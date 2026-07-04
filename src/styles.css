@@ -97,12 +97,14 @@ button.act.bond { border-color: var(--bond); }
 .pick { outline: 3px solid var(--warm); border-radius: 12px; }
 .hint { font-size: 13px; opacity: 0.75; margin-top: 6px; }
 
-/* Overworld touch d-pad (Meadowmere/Town) — bottom-right cluster, thumb-reachable.
-   Bottom offset clears the phone's gesture bar via safe-area-inset-bottom. */
+/* Overworld touch controls (Zone/Town), console-style split:
+   d-pad bottom-LEFT (movement, left thumb) · interact + ☰ menu bottom-RIGHT
+   (right thumb). Both clusters are safe-area padded so nothing hides under the
+   phone gesture bar, and they sit at opposite corners so they never overlap. */
 .dpad {
-  position: absolute; right: 22px;
-  bottom: calc(26px + env(safe-area-inset-bottom, 0px));
-  width: 150px; height: 150px;
+  position: absolute; left: 20px;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  width: 150px; height: 150px; z-index: 4;
 }
 .dpad .pad {
   position: absolute; width: 50px; height: 50px; border: none; cursor: pointer;
@@ -116,31 +118,37 @@ button.act.bond { border-color: var(--bond); }
 .dpad .left  { left: 0; top: 50px; }
 .dpad .right { right: 0; top: 50px; }
 
-/* The interact affordance ("Talk (E)" in Town, INTERACT in Zone) lives in its
-   own bottom-LEFT cluster so it never collides with the d-pad's bottom-right
-   footprint — both thumb-reachable, neither overlapping the other or the
-   walking hint. */
-.interact-btn {
-  position: absolute; left: 16px;
-  bottom: calc(26px + env(safe-area-inset-bottom, 0px));
-  min-width: 84px; min-height: 56px; font-size: 16px;
-  z-index: 2;
+/* Bottom-RIGHT action cluster: the context interact (Talk / Enter Home /
+   Aldercradle) stacked above the ☰ menu (the merged pause + settings). Right-
+   thumb reachable, aligned to the right edge. */
+.touch-actions {
+  position: absolute; right: 20px;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  display: flex; flex-direction: column; align-items: flex-end; gap: 10px; z-index: 4;
 }
+.touch-actions .act { min-height: 52px; }
+.touch-menu {
+  min-width: 56px; min-height: 56px; padding: 0; font-size: 22px; line-height: 1;
+  background: var(--panel); border: 2px solid var(--warm-deep); border-radius: 14px;
+  box-shadow: var(--shadow); cursor: pointer; color: var(--ink);
+  display: flex; align-items: center; justify-content: center;
+  touch-action: manipulation;
+}
+.touch-menu:active { background: var(--parchment-2); transform: scale(0.96); }
 
-/* Desktop-only walking hint — narrow phones hide this (see media query below)
-   since the d-pad + interact button already make the controls obvious, and
-   the hint text used to sit in the same band the controls now occupy. */
-.walk-hint { position: absolute; left: 0; right: 0; bottom: 116px; text-align: center; }
+/* Desktop-only walking hint — narrow phones hide it (the d-pad + buttons make
+   the controls obvious, and the hint used to sit in the control band). */
+.walk-hint { position: absolute; left: 0; right: 0; bottom: 120px; text-align: center; }
 
 @media (max-width: 560px) {
   .walk-hint { display: none; }
-  .dpad { right: 14px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); width: 138px; height: 138px; }
+  .dpad { left: 14px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); width: 138px; height: 138px; }
   .dpad .pad { width: 46px; height: 46px; }
   .dpad .up    { left: 46px; }
   .dpad .down  { left: 46px; }
   .dpad .right { right: 0; top: 46px; }
   .dpad .left  { left: 0; top: 46px; }
-  .interact-btn { left: 12px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
+  .touch-actions { right: 14px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
 }
 
 /* ── Shell: HUD top bar ─────────────────────────────────────────────────────── */

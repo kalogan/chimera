@@ -20,13 +20,14 @@ export interface HudBarProps {
   dexText: string;
   /** Party members to show as small name/rank chips (Sanctuary/Meadowmere). */
   party?: Creature[];
-  /** Show the touch pause (⏸) button — omit on screens with no pause (e.g. reveal). */
-  onPause?: () => void;
-  /** Show the touch settings (⚙) button — a direct entry point, no Pause detour. */
-  onSettings?: () => void;
+  /** Show the single ☰ menu button — opens the pause menu (Resume · Settings ·
+   *  Return to Title), the merged home for what used to be separate ⏸ + ⚙ icons.
+   *  Omit on screens that host their own menu button (the walkable Town/Zone put
+   *  it in the bottom-right thumb cluster instead). */
+  onMenu?: () => void;
 }
 
-export function HudBar({ title, subtitle, dexText, party, onPause, onSettings }: HudBarProps) {
+export function HudBar({ title, subtitle, dexText, party, onMenu }: HudBarProps) {
   return (
     <div className="hud-top">
       <div className="banner">
@@ -36,24 +37,14 @@ export function HudBar({ title, subtitle, dexText, party, onPause, onSettings }:
         </div>
         <div className="hud-right">
           <div className="dex">{dexText}</div>
-          {onSettings && (
+          {onMenu && (
             <button
               className="hud-pause"
-              aria-label="Settings"
-              title="Settings"
-              onClick={() => { audio().playUi("select"); onSettings(); }}
+              aria-label="Menu"
+              title="Menu (Esc)"
+              onClick={() => { audio().playUi("select"); onMenu(); }}
             >
-              ⚙
-            </button>
-          )}
-          {onPause && (
-            <button
-              className="hud-pause"
-              aria-label="Pause"
-              title="Pause (Esc)"
-              onClick={() => { audio().playUi("select"); onPause(); }}
-            >
-              ⏸
+              ☰
             </button>
           )}
         </div>
