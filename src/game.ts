@@ -12,6 +12,7 @@ import {
   addCreature,
   markSeen,
   dexCount,
+  release,
   type RosterState,
 } from "game-kit/roster";
 import type { RivalState } from "game-kit/rival";
@@ -37,12 +38,23 @@ import {
 import {
   createEconomy,
   addGold,
+  addItem,
   buy,
   sell,
   useItem,
   itemDef,
   type EconomyState,
 } from "game-kit/economy";
+import {
+  createQuestLog,
+  recordEvent,
+  claimReward,
+  offerable,
+  acceptQuest,
+  type QuestState,
+  type QuestEvent,
+  type QuestDef,
+} from "game-kit/quest";
 import { MEADOWMERE, ZONES, zoneById, SANCTUARY_TARGET } from "./zone.js";
 import {
   makeRivals,
@@ -53,9 +65,19 @@ import {
   updateRival,
   type PlacedRival,
 } from "./rivals.js";
+import { TOWN_SPAWN, isTownWalkable } from "./town.js";
 import { saveGame, type SaveData } from "./save.js";
 
-export type Screen = "party" | "zone" | "battle" | "cradle" | "newborn" | "shop" | "dex";
+export type Screen =
+  | "party"
+  | "zone"
+  | "battle"
+  | "cradle"
+  | "newborn"
+  | "shop"
+  | "dex"
+  | "town"
+  | "trade";
 
 // Gold earned when a wild encounter resolves — winning is worth more than
 // befriending (scouting already rewards you with the creature itself).
@@ -99,7 +121,69 @@ export interface GameState {
   // roamer.
   rivals: PlacedRival[];
   rivalBattleId: string | null;
+  // TOWN (walkable plaza hub). `townPlayerTile` is the player's grid position
+  // in town.ts's map, carried in GameState (not local App.tsx state) so it
+  // survives whatever the view layer does; `quests` is the player's quest log
+  // (see GAME_QUESTS below) — IN-SESSION ONLY for now, see save.ts note at
+  // applySave/newGame (save.ts's SaveData is a closed, unedited shape, so
+  // quest progress does not yet survive a reload).
+  townPlayerTile: [number, number];
+  quests: QuestState;
 }
+
+/**
+ * CHIMERA's quest catalog, lightly adapted from the kit's `SAMPLE_QUESTS`
+ * families/zones to this game's own (beast/dragon/aquatic families;
+ * meadowmere/emberdeep/tidewrack zones; Old Tamsin as the sole in-fiction
+ * giver). Offered through Old Tamsin's TownDialogue (`offerable(GAME_QUESTS,
+ * g.quests)`); progressed by `recordEvent` calls threaded through the real
+ * game moments (see stepBattle/breedPicked/enterZone below).
+ */
+export const GAME_QUESTS: readonly QuestDef[] = [
+  {
+    id: "q-scout-beasts",
+    title: "Beastly Business",
+    giver: "questgiver",
+    description: "Scout 3 beast-family goobers for the town ranch.",
+    objective: { kind: "scout-family", family: "beast", count: 3 },
+    reward: { gold: 100 },
+  },
+  {
+    id: "q-reach-emberdeep",
+    title: "Into the Embers",
+    giver: "questgiver",
+    description: "Find your way to Emberdeep.",
+    objective: { kind: "reach-zone", zone: "emberdeep" },
+    reward: { gold: 50, itemId: "healing-herb", itemCount: 3 },
+  },
+  {
+    id: "q-first-breed",
+    title: "A New Generation",
+    giver: "questgiver",
+    description: "Weave your first new life in the Cradle.",
+    objective: { kind: "breed", count: 1 },
+    reward: { itemId: "dragon-catalyst", itemCount: 1 },
+    prereq: "q-scout-beasts",
+  },
+  {
+    id: "q-grow-the-dex",
+    title: "Compendium",
+    giver: "questgiver",
+    description: "Discover 10 species for the Dex.",
+    objective: { kind: "dex", count: 10 },
+    reward: { unlockZone: "tidewrack" },
+    prereq: "q-reach-emberdeep",
+  },
+  {
+    id: "q-tide-scout",
+    title: "Tidewrack Bounty",
+    giver: "questgiver",
+    description: "Scout 2 aquatic-family goobers from Tidewrack.",
+    objective: { kind: "scout-family", family: "aquatic", count: 2 },
+    reward: { gold: 80 },
+    prereq: "q-grow-the-dex",
+  },
+];
 
 // Three balanced rank-C starter companions (scanned for viable, non-godlike stats).
 const STARTER_IDS = ["s16", "s24", "s33"];
@@ -128,6 +212,8 @@ export function newGame(): GameState {
     economy: createEconomy({ gold: 120, items: { "healing-herb": 2 } }),
     rivals: makeRivals(),
     rivalBattleId: null,
+    townPlayerTile: [...TOWN_SPAWN],
+    quests: createQuestLog(),
   };
 }
 
@@ -159,6 +245,11 @@ export function applySave(g: GameState, data: SaveData): GameState {
     encounterSeed: data.encounterSeed,
     breedSeed: data.breedSeed,
     unlockedZones: data.unlockedZones.length > 0 ? data.unlockedZones : ["meadowmere"],
+    // Not part of SaveData (see the note on GameState.quests) — a loaded game
+    // always resumes with a fresh in-session quest log and the town spawn,
+    // same as every other transient/screen-local field above.
+    townPlayerTile: [...TOWN_SPAWN],
+    quests: g.quests,
   };
 }
 
@@ -219,7 +310,7 @@ export function enterZone(g: GameState, zoneId: string = "meadowmere"): GameStat
   const unlockedZones = g.unlockedZones.includes(descriptor.id)
     ? g.unlockedZones
     : [...g.unlockedZones, descriptor.id];
-  return {
+  const next: GameState = {
     ...g,
     screen: "zone",
     zone: createZone(descriptor, g.encounterSeed * 101 + 7),
@@ -228,6 +319,7 @@ export function enterZone(g: GameState, zoneId: string = "meadowmere"): GameStat
     rivals,
     rivalBattleId: null,
   };
+  return applyQuestEvent(next, { type: "enteredZone", zone: descriptor.id });
 }
 
 /** Start a battle against a SPECIFIC wild token (the roamer/grass you met). */
@@ -488,10 +580,21 @@ export function stepBattle(
 
   if (outcome) screen = "battle"; // stay to show the result banner; player taps Continue
 
-  return {
-    game: { ...g, battle: state, roster, economy, outcome, screen, log: newLog.slice(-8) },
-    events,
-  };
+  let next: GameState = { ...g, battle: state, roster, economy, outcome, screen, log: newLog.slice(-8) };
+
+  // Quest progress: a successful scout advances scout-family/scout-any +
+  // grows the Dex tally; a won RIVAL battle advances defeat-rival for that
+  // specific rival (a plain wild victory carries no rival id, so it never
+  // matches a defeat-rival objective).
+  if (scouted && g.wildToken) {
+    next = applyQuestEvent(next, { type: "scouted", family: creatureFromToken(g.wildToken).family });
+    next = applyQuestEvent(next, { type: "dexCount", total: dexCount(roster) });
+  }
+  if (won && g.rivalBattleId) {
+    next = applyQuestEvent(next, { type: "defeatedRival", rivalId: g.rivalBattleId });
+  }
+
+  return { game: next, events };
 }
 
 /** Leave the battle back to the sanctuary, bumping the encounter seed. Auto-saves. */
@@ -531,7 +634,7 @@ export function breedPicked(g: GameState): GameState {
   const result = breed(creatureFromToken(a), creatureFromToken(b), createRng(g.breedSeed));
   const newborn = creatureFromToken(result.childToken);
   const roster = addCreature(g.roster, result.childToken, { toStorage: true });
-  const next: GameState = {
+  let next: GameState = {
     ...g,
     roster,
     screen: "newborn",
@@ -539,12 +642,74 @@ export function breedPicked(g: GameState): GameState {
     lastBreed: result,
     breedSeed: g.breedSeed + 1,
   };
+  next = applyQuestEvent(next, { type: "bred", family: newborn.family });
+  next = applyQuestEvent(next, { type: "dexCount", total: dexCount(roster) });
   saveGame(next); // a new life is a natural auto-save beat
   return next;
 }
 
 export function backToParty(g: GameState): GameState {
   return { ...g, screen: "party", cradlePick: [], newborn: null };
+}
+
+// ── Quests (Old Tamsin's questgiver flow) ───────────────────────────────────
+
+/** Fold one `QuestEvent` into the quest log, applying any reward(s) for quests
+ *  that newly complete this call (gold/item → economy, unlockZone → the
+ *  unlocked-zones list) — the ONE place `recordEvent`'s output is threaded
+ *  into the rest of GameState, so every call site below (stepBattle/
+ *  breedPicked/enterZone) stays a one-liner. */
+function applyQuestEvent(g: GameState, event: QuestEvent): GameState {
+  const { state: quests, completed } = recordEvent(GAME_QUESTS, g.quests, event);
+  if (completed.length === 0) return { ...g, quests };
+
+  let economy = g.economy;
+  let unlockedZones = g.unlockedZones;
+  for (const id of completed) {
+    const def = GAME_QUESTS.find((d) => d.id === id);
+    if (!def) continue;
+    const reward = claimReward(def);
+    if (reward.gold) economy = addGold(economy, reward.gold);
+    if (reward.itemId) economy = addItem(economy, reward.itemId, reward.itemCount ?? 1);
+    if (reward.unlockZone && !unlockedZones.includes(reward.unlockZone)) {
+      unlockedZones = [...unlockedZones, reward.unlockZone];
+    }
+  }
+  return { ...g, quests, economy, unlockedZones };
+}
+
+/** Accept an offered quest by id (Old Tamsin's TownDialogue → `onAcceptQuest`). */
+export function acceptGameQuest(g: GameState, id: string): GameState {
+  return { ...g, quests: acceptQuest(g.quests, id) };
+}
+
+/** Quests Old Tamsin currently has to offer (not active, not completed, prereqs met). */
+export function offeredQuests(g: GameState): QuestDef[] {
+  return offerable(GAME_QUESTS, g.quests);
+}
+
+// ── TOWN (walkable plaza hub) ────────────────────────────────────────────────
+
+/** Enter the town from the Sanctuary, at the road-in spawn tile. */
+export function enterTown(g: GameState): GameState {
+  return { ...g, screen: "town", townPlayerTile: [...TOWN_SPAWN] };
+}
+
+/** Leave the town back to the Sanctuary. Auto-saves (mirrors exitZone/leaveBattle). */
+export function leaveTown(g: GameState): GameState {
+  const next: GameState = { ...g, screen: "party" };
+  saveGame(next);
+  return next;
+}
+
+/** Move the player's town tile, guarded by `isTownWalkable` — a no-op (same
+ *  state) on a blocked step so the caller can always just setGame() the result. */
+export function moveInTown(g: GameState, dx: number, dy: number): GameState {
+  const [x, y] = g.townPlayerTile;
+  const nx = x + dx;
+  const ny = y + dy;
+  if (!isTownWalkable(nx, ny)) return g;
+  return { ...g, townPlayerTile: [nx, ny] };
 }
 
 // ── The Dex (Wave 5) ─────────────────────────────────────────────────────────
@@ -623,4 +788,50 @@ export function useItemInBattle(
   const battleEffect = toBattleEffect(effect.kind, effect.amount);
   if (!battleEffect) return { game: g, events: [] };
   return stepBattle({ ...g, economy }, { type: "item", targetId, effect: battleEffect });
+}
+
+// ── TRADE (Ferro Vantt's trade post) ────────────────────────────────────────
+
+// Rank tier index (F=0..S=6) times this multiplier, plus a flat base and a
+// small per-generation/plus bonus — a simple, legible valuation good enough
+// for a first trade-post pass (storage-only, never the last party member).
+const TRADE_BASE = 12;
+const TRADE_RANK_K = 14;
+const TRADE_GEN_BONUS = 4;
+const TRADE_PLUS_BONUS = 3;
+
+/** Value a creature in gold for the trade post — base + rank tier * k + a
+ *  small generation/plus bonus (a bred, leveled-up lineage is worth a bit more). */
+export function creatureValue(c: Creature): number {
+  const rankIdx = RANKS_ORDER.indexOf(c.rank);
+  const tier = rankIdx < 0 ? 0 : rankIdx;
+  return (
+    TRADE_BASE +
+    tier * TRADE_RANK_K +
+    c.token.generation * TRADE_GEN_BONUS +
+    c.token.plus * TRADE_PLUS_BONUS
+  );
+}
+const RANKS_ORDER = ["F", "E", "D", "C", "B", "A", "S"] as const;
+
+/** Enter the trade screen from the Questmaster's dialogue. */
+export function openTrade(g: GameState): GameState {
+  return { ...g, screen: "trade" };
+}
+
+/**
+ * Trade in a STORAGE creature (never the party — a party member must be
+ * swapped to storage first, which the trade screen doesn't offer) for gold at
+ * `creatureValue`. A no-op (same state) if the token isn't in storage. Auto-saves,
+ * same beat as a breed/battle-leave.
+ */
+export function tradeCreature(g: GameState, tokenId: string): GameState {
+  const token = g.roster.storage.find((t) => t.id === tokenId);
+  if (!token) return g;
+  const value = creatureValue(creatureFromToken(token));
+  const roster = release(g.roster, tokenId);
+  const economy = addGold(g.economy, value);
+  const next: GameState = { ...g, roster, economy };
+  saveGame(next);
+  return next;
 }
