@@ -132,6 +132,35 @@ button.act.bond { border-color: var(--bond); }
   .battle-commands .act { padding: 9px 8px; font-size: 13px; }
 }
 
+/* Landscape / short-viewport compaction — in portrait the 3-column stack
+   above is untouched, but on a wide-short phone/desktop window the same
+   bottom stack was eating ~half the screen (log + cards + a 3-row command
+   grid all at full size). Cap it to roughly a third of the viewport height:
+   a single-row 6-column command grid, a 1-line log, tighter cards/padding.
+   `max-height` covers short DESKTOP windows too (not just touch devices),
+   since `orientation: landscape` alone doesn't catch a squat browser window. */
+@media (orientation: landscape) and (max-height: 620px) {
+  .battle-bottom {
+    max-height: 34vh;
+    gap: 4px;
+    padding: 4px 8px calc(4px + env(safe-area-inset-bottom, 0px));
+  }
+  .battle-bottom .log {
+    max-height: 1.4em;
+    overflow: hidden;
+    font-size: 11px;
+    padding: 3px 8px;
+  }
+  .battle-bottom .log div { display: none; }
+  .battle-bottom .log div:last-child { display: block; }
+  .battle-bottom .cards.player { gap: 4px; }
+  .battle-bottom .cards.player .card { padding: 3px 6px; font-size: 10px; max-width: 108px; }
+  .battle-bottom .cards.player .bar { height: 4px; margin-top: 2px; }
+  .battle-commands { grid-template-columns: repeat(6, 1fr); gap: 4px; }
+  .battle-commands .act { padding: 5px 4px; font-size: 11px; min-height: 30px; }
+  .battle-victory { padding: 4px 8px; font-size: 12px; }
+}
+
 /* Overworld touch controls (Zone/Town), console-style split:
    d-pad bottom-LEFT (movement, left thumb) · interact + ☰ menu bottom-RIGHT
    (right thumb). Both clusters are safe-area padded so nothing hides under the

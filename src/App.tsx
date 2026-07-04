@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { creatureFromToken } from "game-kit/creature";
-import type { BattleState, Combatant } from "game-kit/battle";
+import type { BattleState, BattleEvent, Combatant } from "game-kit/battle";
+import type { Element } from "game-kit/creature";
 import type { Dir } from "game-kit/world-runtime";
 import { GooberStage, type Placed } from "./GooberStage.js";
+import { SlashVFX, ElementBurstVFX } from "./battle-vfx.js";
 import { ZoneScene } from "./ZoneScene.js";
 import { specForToken } from "./goober-cache.js";
 import { IntroScene } from "./intro.js";
@@ -776,6 +778,66 @@ function placedFrom(c: Combatant, position: [number, number, number], facing: nu
   return { id: c.id, spec, position, facing, fainted: !c.alive, seed };
 }
 
+/** Look up a combatant's CURRENT world position on the battle stage (the same
+ *  layout `battlePlaced` derives), by re-deriving from the pre-action battle
+ *  state so VFX plays at the position the creature stood at when the hit
+ *  landed, regardless of any faint/swap the post-action state introduces. */
+function stagePositionOf(b: BattleState, id: string): [number, number, number] | null {
+  const pi = b.playerTeam.findIndex((c) => c.id === id);
+  if (pi >= 0) return [(pi - (b.playerTeam.length - 1) / 2) * 6, 2.5, 6];
+  const ei = b.enemyTeam.findIndex((c) => c.id === id);
+  if (ei >= 0) return [(ei - (b.enemyTeam.length - 1) / 2) * 6, 2.5, -7];
+  return null;
+}
+
+/** One player action's worth of combat VFX, captured from the `BattleEvent`
+ *  stream `stepBattle` returns: the attacker/target ids + world positions and
+ *  what kind of hit landed (a plain attack's slash vs. a skill's elemental
+ *  burst). Sequenced by `BattleScreen.doAction` — see the block comment there
+ *  for the full reveal timeline. Only the FIRST damage-dealing beat in the
+ *  stream is animated (the player's own action); enemy-turn follow-on damage
+ *  still resolves (HP/log update once `anim` commits) even though its own
+ *  hit isn't separately choreographed — see the comment at the call site. */
+interface BattleAnim {
+  attackerId: string;
+  targetId: string;
+  kind: "attack" | "skill";
+  element: Element;
+  attackerPos: [number, number, number];
+  targetPos: [number, number, number];
+}
+
+/** How long the VFX window holds before the real state (HP bars, faint,
+ *  log) commits — snappy, not sluggish. Tuned separately for a bare attack
+ *  (a fast slash) vs. a skill (a slightly longer elemental burst) so the
+ *  bigger effect has time to read. */
+const ATTACK_ANIM_MS = 620;
+const SKILL_ANIM_MS = 780;
+
+/** Derive the BattleAnim for the player's own action from the fresh event
+ *  stream + the PRE-action battle state (so positions match what's on
+ *  screen right now). Returns null when there's nothing to animate (a miss,
+ *  defend, scout, flee, item — those commit immediately, no VFX window). */
+function deriveBattleAnim(preBattle: BattleState, events: readonly BattleEvent[]): BattleAnim | null {
+  const actionEv = events.find((e): e is Extract<BattleEvent, { type: "action" }> => e.type === "action");
+  if (!actionEv || (actionEv.kind !== "attack" && actionEv.kind !== "skill")) return null;
+  const dmgEv = events.find(
+    (e): e is Extract<BattleEvent, { type: "damage" }> => e.type === "damage" && e.sourceId === actionEv.actorId,
+  );
+  if (!dmgEv) return null; // a miss/whiff — resolve immediately, no VFX
+  const attackerPos = stagePositionOf(preBattle, dmgEv.sourceId);
+  const targetPos = stagePositionOf(preBattle, dmgEv.targetId);
+  if (!attackerPos || !targetPos) return null;
+  return {
+    attackerId: dmgEv.sourceId,
+    targetId: dmgEv.targetId,
+    kind: actionEv.kind,
+    element: dmgEv.element,
+    attackerPos,
+    targetPos,
+  };
+}
+
 function Bar({ kind, cur, max }: { kind: "hp" | "mp"; cur: number; max: number }) {
   const pct = max > 0 ? Math.max(0, Math.min(100, (cur / max) * 100)) : 0;
   return (
@@ -799,9 +861,25 @@ function CombatantCard({ c, active }: { c: Combatant; active: boolean }) {
 
 function BattleScreen({ game, setGame, onPause }: ScreenProps & { onPause: () => void }) {
   const b = game.battle;
+  // `anim` sequences a player action's reveal: doAction/doItem compute the
+  // NEW state + events immediately (stepBattle/useItemInBattle are pure), but
+  // instead of committing right away they stash the pending result here and
+  // render the VFX/reactions against the CURRENT (pre-action) state for a
+  // short window. Only once the window elapses does `commit()` call
+  // `setGame(pending)` — so HP bars/faint/log all update AFTER the hit lands,
+  // matching what the player just watched. `playBattleEvents` (audio) fires
+  // at the same moment the VFX starts, i.e. as the hit connects, not after.
+  // Gate: `anim !== null` disables the command grid so a player can't spam
+  // actions mid-animation; `pending` always resolves via setTimeout, so a
+  // stray null attacker/target position just skips VFX and commits at once
+  // (deriveBattleAnim already returns null for those cases) — never a soft-lock.
+  const [anim, setAnim] = useState<{
+    battleAnim: BattleAnim | null;
+    pending: GameState;
+  } | null>(null);
   if (!b) return null;
   const actor = activeActor(b);
-  const placed = battlePlaced(b);
+  const placedBase = battlePlaced(b);
   const rival = game.rivalBattleId ? game.rivals.find((p) => p.rival.id === game.rivalBattleId) : undefined;
   const guardianTitle = game.guardianBattleWorldId && game.zone ? GUARDIAN_TITLE[game.zone.descriptor.id] : undefined;
 
@@ -809,28 +887,91 @@ function BattleScreen({ game, setGame, onPause }: ScreenProps & { onPause: () =>
   // submenu, or the bag. Nesting skills/items keeps the command bar tidy (a
   // clean 3-column grid) instead of a crowded wrap that overlapped the cards.
   const [sub, setSub] = useState<"main" | "skills" | "items">("main");
+
+  const commit = (pending: GameState) => {
+    setSub("main");
+    setGame(pending);
+    setAnim(null);
+  };
+
+  const runWithAnim = (pending: GameState, events: readonly BattleEvent[]) => {
+    const battleAnim = deriveBattleAnim(b, events);
+    if (!battleAnim) {
+      // Nothing to animate (miss/defend/scout/flee/item) — resolve at once.
+      playBattleEvents(audio(), events);
+      commit(pending);
+      return;
+    }
+    setAnim({ battleAnim, pending });
+    const durationMs = battleAnim.kind === "skill" ? SKILL_ANIM_MS : ATTACK_ANIM_MS;
+    // Audio fires as the hit connects — roughly mid-window, matching the VFX
+    // impact rather than the lunge's start.
+    window.setTimeout(() => playBattleEvents(audio(), events), Math.round(durationMs * 0.35));
+    window.setTimeout(() => commit(pending), durationMs);
+  };
+
   const doAction = (act: Parameters<typeof stepBattle>[1]) => {
+    if (anim) return; // input-gated while an animation is in flight
     audio().playUi("select");
     const { game: g2, events } = stepBattle(game, act);
-    playBattleEvents(audio(), events);
-    setSub("main");
-    setGame(g2);
+    runWithAnim(g2, events);
   };
   const target = defaultTargetId(b);
   const items = usableBattleItems(game);
   const doItem = (itemId: string) => {
+    if (anim) return;
     const tid = itemTargetId(b, itemId);
     if (!tid) return;
     audio().playUi("confirm");
     const { game: g2, events } = useItemInBattle(game, itemId, tid);
-    playBattleEvents(audio(), events);
-    setSub("main");
-    setGame(g2);
+    runWithAnim(g2, events);
   };
+
+  // Splice the in-flight reaction/lunge/VFX onto the pre-action placement so
+  // GooberStage animates the SAME positions the player saw before pressing
+  // the button (see the `anim` comment above for why commit is deferred).
+  const placed: Placed[] = placedBase.map((p) => {
+    if (!anim?.battleAnim) return p;
+    const { attackerId, targetId } = anim.battleAnim;
+    if (p.id === targetId) {
+      return {
+        ...p,
+        reaction: { active: true, awayFrom: anim.battleAnim.attackerPos, onDone: noop },
+      };
+    }
+    if (p.id === attackerId) {
+      return { ...p, lunge: { active: true, toward: anim.battleAnim.targetPos, onDone: noop } };
+    }
+    return p;
+  });
+
+  const vfx = anim?.battleAnim ? (
+    anim.battleAnim.kind === "attack" ? (
+      <SlashVFX
+        key="slash"
+        position={[anim.battleAnim.targetPos[0], anim.battleAnim.targetPos[1] + 1.4, anim.battleAnim.targetPos[2]]}
+        onDone={noop}
+      />
+    ) : (
+      <ElementBurstVFX
+        key="burst"
+        element={anim.battleAnim.element}
+        position={[anim.battleAnim.targetPos[0], anim.battleAnim.targetPos[1] + 0.4, anim.battleAnim.targetPos[2]]}
+        onDone={noop}
+      />
+    )
+  ) : null;
 
   return (
     <>
-      <GooberStage placed={placed} cameraPos={[3, 7, 21]} fov={32} bg={guardianTitle ? "#d9b96a" : "#a9d9c0"} ground="#cfe6a8" />
+      <GooberStage
+        placed={placed}
+        cameraPos={[3, 7, 21]}
+        fov={32}
+        bg={guardianTitle ? "#d9b96a" : "#a9d9c0"}
+        ground="#cfe6a8"
+        vfx={vfx}
+      />
       <div className="overlay">
         <HudBar
           title={guardianTitle ? `⚔ ${guardianTitle}` : rival ? `Rival battle · ${rival.rival.name}` : "Encounter"}
@@ -868,37 +1009,37 @@ function BattleScreen({ game, setGame, onPause }: ScreenProps & { onPause: () =>
                 <>
                   {items.length === 0 && <div className="hint" style={{ gridColumn: "1 / -1" }}>No usable items.</div>}
                   {items.map((it) => (
-                    <button key={it.id} className="act" onClick={() => doItem(it.id)}>
+                    <button key={it.id} className="act" disabled={!!anim} onClick={() => doItem(it.id)}>
                       {it.name} <small>×{it.count}</small>
                     </button>
                   ))}
-                  <button className="act" onClick={() => setSub("main")}>← Back</button>
+                  <button className="act" disabled={!!anim} onClick={() => setSub("main")}>← Back</button>
                 </>
               ) : sub === "skills" ? (
                 <>
                   {actor.skills.slice(0, 5).map((s) => (
-                    <button key={s.id} className="act" disabled={actor.currentMp < s.mpCost}
+                    <button key={s.id} className="act" disabled={!!anim || actor.currentMp < s.mpCost}
                       onClick={() => doAction({ type: "skill", skillId: s.id, targetId: target })}>
                       {s.name} <small>({s.mpCost})</small>
                     </button>
                   ))}
-                  <button className="act" onClick={() => setSub("main")}>← Back</button>
+                  <button className="act" disabled={!!anim} onClick={() => setSub("main")}>← Back</button>
                 </>
               ) : (
                 <>
-                  <button className="act primary" onClick={() => doAction({ type: "attack", targetId: target })}>Attack</button>
-                  <button className="act" disabled={actor.skills.length === 0}
+                  <button className="act primary" disabled={!!anim} onClick={() => doAction({ type: "attack", targetId: target })}>Attack</button>
+                  <button className="act" disabled={!!anim || actor.skills.length === 0}
                     onClick={() => { audio().playUi("select"); setSub("skills"); }}>Skills ▸</button>
                   {/* A Guardian is a boss, not a companion to befriend — Scout is
                       hidden for a Guardian fight so victory is the only path to
                       its Heartseed. */}
                   {!guardianTitle && (
-                    <button className="act bond" onClick={() => doAction({ type: "scout", targetId: target })}>Scout 🤝</button>
+                    <button className="act bond" disabled={!!anim} onClick={() => doAction({ type: "scout", targetId: target })}>Scout 🤝</button>
                   )}
-                  <button className="act" disabled={items.length === 0}
+                  <button className="act" disabled={!!anim || items.length === 0}
                     onClick={() => { audio().playUi("select"); setSub("items"); }}>Bag 🎒</button>
-                  <button className="act" onClick={() => doAction({ type: "defend" })}>Defend</button>
-                  <button className="act" onClick={() => doAction({ type: "flee" })}>Flee</button>
+                  <button className="act" disabled={!!anim} onClick={() => doAction({ type: "defend" })}>Defend</button>
+                  <button className="act" disabled={!!anim} onClick={() => doAction({ type: "flee" })}>Flee</button>
                 </>
               )
             ) : (
@@ -910,6 +1051,8 @@ function BattleScreen({ game, setGame, onPause }: ScreenProps & { onPause: () =>
     </>
   );
 }
+
+function noop(): void {}
 
 // ── The Cradle (breeding) ───────────────────────────────────────────────────
 function CradleScreen({ game, setGame }: ScreenProps) {
