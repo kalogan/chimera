@@ -41,7 +41,11 @@ export interface GameState {
   breedSeed: number;
 }
 
-const STARTER_IDS = ["ember-01", "brook-02", "thistle-03"];
+// Three balanced rank-C starter companions (scanned for viable, non-godlike stats).
+const STARTER_IDS = ["s16", "s24", "s33"];
+// Early wild encounters, escalating from weak/scoutable → tougher. Kept legible so
+// the first meadow encounter can be softened and befriended by the starters.
+const WILD_POOL = ["w3", "w16", "w25", "w9", "w70", "w56"];
 
 /** A fresh game: a starting party of three goober companions. */
 export function newGame(): GameState {
@@ -77,7 +81,8 @@ export function dexTotal(g: GameState): number {
 
 /** Deterministically make the wild encounter token from the encounter seed. */
 export function makeWild(seed: number): CreatureToken {
-  return seedToken(`wild-${seed}`);
+  const id = WILD_POOL[(seed - 1) % WILD_POOL.length] ?? `wild-${seed}`;
+  return seedToken(id);
 }
 
 /** Start a wild encounter: 3 party vs 1 wild. Marks the wild as SEEN. */
