@@ -68,16 +68,16 @@ const SPLASH_BOUNCE_SEEDS = ["splash-bounce-1", "splash-bounce-2", "splash-bounc
 // read clearly without overlapping the trunk). Kept a plain array (not
 // randomized) so the splash framing is stable/reproducible run to run.
 const BOUNCE_LAYOUT: Array<{ position: [number, number, number]; facing: number; sizeScale: number }> = [
-  { position: [-2.2, 0, 3.6], facing: 0.4, sizeScale: 0.85 },
-  { position: [-0.7, 0, 4.4], facing: -0.15, sizeScale: 0.95 },
-  { position: [0.9, 0, 4.2], facing: 0.2, sizeScale: 0.8 },
-  { position: [2.3, 0, 3.5], facing: -0.4, sizeScale: 0.9 },
+  { position: [-3.0, 0, 2.6], facing: 0.4, sizeScale: 0.6 },
+  { position: [-1.05, 0, 3.3], facing: -0.15, sizeScale: 0.68 },
+  { position: [1.15, 0, 3.05], facing: 0.2, sizeScale: 0.58 },
+  { position: [2.9, 0, 2.4], facing: -0.4, sizeScale: 0.64 },
 ];
 
 // Bounce tuning — noticeably springier than Goober's own idle bob (which tops
 // out around ±0.08 world units). A per-goober phase offset (derived from
 // index) keeps the four hops out of lockstep.
-const BOUNCE_HEIGHT = 0.55;
+const BOUNCE_HEIGHT = 0.42;
 const BOUNCE_SPEED = 2.1;
 
 /**
@@ -141,8 +141,8 @@ export function SplashScene({ treeStage = 0.75 }: SplashSceneProps) {
   const bounceSpecs = useMemo(() => SPLASH_BOUNCE_SEEDS.map((seed) => specForSeed(seed)), []);
 
   return (
-    <Canvas className="stage" camera={{ position: [0, 4.6, 12.5], fov: 28 }} shadows={false} dpr={[1, getQuality().dprCap]}>
-      <ResponsiveFov baseFov={28} />
+    <Canvas className="stage" camera={{ position: [0, 5, 19], fov: 32 }} shadows={false} dpr={[1, getQuality().dprCap]}>
+      <ResponsiveFov baseFov={32} />
       <color attach="background" args={["#f0dcb8"]} />
       <GooberEnv palette={STAGE_PALETTE} />
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
@@ -151,7 +151,7 @@ export function SplashScene({ treeStage = 0.75 }: SplashSceneProps) {
       </mesh>
 
       {/* The hero: Aldercradle's Tree of Life, tall + centered + set back. */}
-      <AldercradleTreeProp stage={treeStage} position={[0, 0, -1.4]} scale={2.1} />
+      <AldercradleTreeProp stage={treeStage} position={[0, 0, -2.5]} scale={1.9} />
 
       {/* A few goobers bouncing in front of / below the tree. */}
       {BOUNCE_LAYOUT.map((b, i) => (
