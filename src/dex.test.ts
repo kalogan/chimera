@@ -1,7 +1,8 @@
 /**
  * dex (screen transition) — pins the game.ts glue the Dex screen depends on:
  * `openDex` switches to the "dex" screen without disturbing roster/economy/
- * zone state, and `backToParty` returns to the Sanctuary. The Dex's own
+ * zone state, and `backToParty` returns to the Town (the game's landing hub
+ * — the name is legacy from the retired Sanctuary/party menu). The Dex's own
  * render logic (src/dex.tsx) is a presentational React/DOM component with no
  * game-state mutation of its own — consistent with the rest of this app's
  * test suite (ZoneScene/GooberStage are exercised via headless game.ts glue
@@ -21,10 +22,10 @@ describe("Dex screen transition", () => {
     expect(d.rivals).toBe(g.rivals);
   });
 
-  it("backToParty returns from the Dex to the Sanctuary", () => {
+  it("backToParty returns from the Dex to the Town", () => {
     const g = openDex(newGame());
     const back = backToParty(g);
-    expect(back.screen).toBe("party");
+    expect(back.screen).toBe("town");
   });
 
   it("the starter roster's dex already has entries for the 3 starters (owned)", () => {

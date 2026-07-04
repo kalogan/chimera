@@ -1,7 +1,9 @@
 /**
  * zone-registry — proof of the Wave 5 world map: the zone registry resolves
  * every id, each zone's portals form a connected travel graph (meadowmere <->
- * emberdeep <-> tidewrack, each also reachable back to the Sanctuary), and
+ * emberdeep <-> tidewrack, each also reachable back to the Town — the
+ * `SANCTUARY_TARGET` routing id is legacy, but travelPortal now resolves it
+ * to the walkable Town hub, not the retired Sanctuary menu), and
  * `enterZone`/`travelPortal` actually walk that graph at the game.ts layer.
  * Also pins the rival-battle balance fix: both rivals field a full 3-creature
  * starting party rather than the old 1v3/2v3 opener.
@@ -69,10 +71,10 @@ describe("enterZone / travelPortal (game.ts glue)", () => {
     expect(g.unlockedZones).toContain("emberdeep");
   });
 
-  it("travelPortal('sanctuary') leaves the overworld back to the Sanctuary", () => {
+  it("travelPortal('sanctuary') leaves the overworld back to the Town", () => {
     const inZone = enterZone(newGame(), "meadowmere");
     const back = travelPortal(inZone, SANCTUARY_TARGET);
-    expect(back.screen).toBe("party");
+    expect(back.screen).toBe("town");
     expect(back.zone).toBeNull();
   });
 
@@ -83,10 +85,10 @@ describe("enterZone / travelPortal (game.ts glue)", () => {
     expect(there.zone?.descriptor.id).toBe("emberdeep");
   });
 
-  it("travelPortal falls back to the Sanctuary for an unknown target", () => {
+  it("travelPortal falls back to the Town for an unknown target", () => {
     const inZone = enterZone(newGame(), "meadowmere");
     const back = travelPortal(inZone, "nowhere");
-    expect(back.screen).toBe("party");
+    expect(back.screen).toBe("town");
     expect(back.zone).toBeNull();
   });
 });

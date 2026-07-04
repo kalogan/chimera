@@ -1,8 +1,8 @@
 /**
  * save — proof of the Wave 5 persistence slice: `saveGame`/`loadGame` round
  * trip the persistent subset of GameState, `applySave` restores a fresh game
- * to the Sanctuary from that data, and a corrupt/missing save degrades to
- * `null` (never a throw) so a bad blob can never crash the app.
+ * to the Town (the game's landing hub) from that data, and a corrupt/missing
+ * save degrades to `null` (never a throw) so a bad blob can never crash the app.
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { saveGame, loadGame, hasSave, clearSave } from "./save.js";
@@ -31,7 +31,7 @@ describe("save/load round-trip", () => {
     expect(loaded!.unlockedZones).toEqual(g.unlockedZones);
   });
 
-  it("applySave restores a fresh game to the Sanctuary with the saved roster/economy/dex/rivals", () => {
+  it("applySave restores a fresh game to the Town with the saved roster/economy/dex/rivals", () => {
     // Breed once so roster/dex/breedSeed have moved from their defaults, then save.
     let g = newGame();
     g = togglePick(g, g.roster.party[0]!.id);
@@ -45,7 +45,7 @@ describe("save/load round-trip", () => {
     const fresh = newGame();
     const restored = applySave(fresh, data!);
 
-    expect(restored.screen).toBe("party");
+    expect(restored.screen).toBe("town");
     expect(restored.battle).toBeNull();
     expect(restored.zone).toBeNull();
     expect(restored.roster).toEqual(g.roster);

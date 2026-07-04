@@ -7,12 +7,15 @@
 import { describe, expect, it } from "vitest";
 import {
   TOWN_HEIGHT,
+  TOWN_HOME_TILE,
+  TOWN_PORTALS,
   TOWN_SPAWN,
   TOWN_TILES,
   TOWN_VILLAGERS,
   TOWN_WIDTH,
   actionForVillager,
   isTownWalkable,
+  portalAt,
   villagerById,
 } from "./town.js";
 
@@ -90,5 +93,46 @@ describe("actionForVillager", () => {
         expect(action).toBeUndefined();
       }
     }
+  });
+});
+
+describe("TOWN_PORTALS (zone teleporter pads)", () => {
+  it("has one pad per zone id, all on walkable tiles", () => {
+    const zoneIds = TOWN_PORTALS.map((p) => p.zoneId);
+    expect(new Set(zoneIds)).toEqual(new Set(["meadowmere", "emberdeep", "tidewrack"]));
+    for (const p of TOWN_PORTALS) {
+      const [x, y] = p.tile;
+      expect(isTownWalkable(x, y)).toBe(true);
+    }
+  });
+
+  it("no pad shares a tile with a villager, the spawn, or another pad", () => {
+    const occupied = new Set<string>([
+      ...TOWN_VILLAGERS.map((v) => v.tile.join(",")),
+      TOWN_SPAWN.join(","),
+    ]);
+    const padTiles = new Set<string>();
+    for (const p of TOWN_PORTALS) {
+      const key = p.tile.join(",");
+      expect(occupied.has(key)).toBe(false);
+      expect(padTiles.has(key)).toBe(false);
+      padTiles.add(key);
+    }
+  });
+
+  it("portalAt finds the pad standing on its own tile and misses elsewhere", () => {
+    const first = TOWN_PORTALS[0]!;
+    expect(portalAt(first.tile[0], first.tile[1])?.zoneId).toBe(first.zoneId);
+    expect(portalAt(-1, -1)).toBeUndefined();
+  });
+});
+
+describe("TOWN_HOME_TILE (the Home building)", () => {
+  it("sits on a walkable tile, distinct from any villager, pad, or the spawn", () => {
+    const [hx, hy] = TOWN_HOME_TILE;
+    expect(isTownWalkable(hx, hy)).toBe(true);
+    for (const v of TOWN_VILLAGERS) expect(v.tile).not.toEqual(TOWN_HOME_TILE);
+    for (const p of TOWN_PORTALS) expect(p.tile).not.toEqual(TOWN_HOME_TILE);
+    expect(TOWN_SPAWN).not.toEqual(TOWN_HOME_TILE);
   });
 });
