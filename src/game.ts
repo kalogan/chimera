@@ -56,7 +56,7 @@ import {
   type QuestEvent,
   type QuestDef,
 } from "game-kit/quest";
-import { MEADOWMERE, ZONES, zoneById, SANCTUARY_TARGET } from "./zone.js";
+import { MEADOWMERE, ZONES, zoneById, SANCTUARY_TARGET, GUARDIAN_ROAMER_ID, GUARDIAN_TITLE } from "./zone.js";
 import {
   makeRivals,
   makeRivalCtx,
@@ -66,8 +66,23 @@ import {
   updateRival,
   type PlacedRival,
 } from "./rivals.js";
-import { TOWN_SPAWN, isTownWalkable, portalAt, TOWN_HOME_TILE } from "./town.js";
+import {
+  TOWN_SPAWN,
+  isTownWalkable,
+  portalAt,
+  dormantPadAt,
+  TOWN_HOME_TILE,
+  TOWN_TREE_TILE,
+} from "./town.js";
 import { saveGame, type SaveData } from "./save.js";
+import {
+  createHeartseeds,
+  awardHeartseed,
+  healedCount,
+  isTreeWhole,
+  worldForZone,
+  type Heartseeds,
+} from "./worldtree.js";
 
 export type Screen =
   | "home"
@@ -78,13 +93,18 @@ export type Screen =
   | "shop"
   | "dex"
   | "town"
-  | "trade";
+  | "trade"
+  | "aldercradle"
+  | "finale";
 
 // Gold earned when a wild encounter resolves — winning is worth more than
 // befriending (scouting already rewards you with the creature itself).
 const GOLD_WIN = 28;
 const GOLD_SCOUT = 16;
-export type Outcome = "win" | "lose" | "scouted" | "fled" | null;
+// A Guardian battle is worth notably more than a common wild win — this is
+// the boss of the zone's whole world.
+const GOLD_GUARDIAN_WIN = 150;
+export type Outcome = "win" | "lose" | "scouted" | "fled" | "guardian-win" | null;
 
 export interface GameState {
   roster: RosterState;
@@ -130,6 +150,17 @@ export interface GameState {
   // quest progress does not yet survive a reload).
   townPlayerTile: [number, number];
   quests: QuestState;
+  // ALDERCRADLE (world-tree progression). `heartseeds` is the PERSISTED record
+  // of which of the 8 worlds (see worldtree.ts's WORLDS) have had their
+  // Guardian defeated — the tree's bloom stage is derived from this via
+  // `healedCount`, never stored redundantly. `guardianBattleWorldId` mirrors
+  // `rivalBattleId`'s shape: set when the CURRENT battle is a Guardian fight
+  // (identified by the zone roamer id `zone.ts`'s GUARDIAN_ROAMER_ID, not a
+  // new ZoneEvent variant), so stepBattle/leaveBattle/returnToZone know to
+  // award the seed + pacify the Guardian on victory, and it's null for every
+  // ordinary wild/rival battle.
+  heartseeds: Heartseeds;
+  guardianBattleWorldId: string | null;
 }
 
 /**
@@ -217,6 +248,8 @@ export function newGame(): GameState {
     rivalBattleId: null,
     townPlayerTile: [...TOWN_SPAWN],
     quests: createQuestLog(),
+    heartseeds: createHeartseeds(),
+    guardianBattleWorldId: null,
   };
 }
 
@@ -242,12 +275,16 @@ export function applySave(g: GameState, data: SaveData): GameState {
     zone: null,
     zoneReturnRoamerId: null,
     rivalBattleId: null,
+    guardianBattleWorldId: null,
     roster: data.roster,
     economy: data.economy,
     rivals: data.rivals,
     encounterSeed: data.encounterSeed,
     breedSeed: data.breedSeed,
     unlockedZones: data.unlockedZones.length > 0 ? data.unlockedZones : ["meadowmere"],
+    // Older saves may predate this field entirely (see save.ts's note) —
+    // forward-fill to "no seeds yet" rather than propagating undefined.
+    heartseeds: data.heartseeds ?? createHeartseeds(),
     // Not part of SaveData (see the note on GameState.quests) — a loaded game
     // always resumes with a fresh in-session quest log and the town spawn,
     // same as every other transient/screen-local field above.
@@ -287,6 +324,7 @@ export function startEncounter(g: GameState): GameState {
     wildToken,
     battle,
     outcome: null,
+    guardianBattleWorldId: null,
     roster: markSeen(g.roster, wildToken),
     log: [`A wild ${wild.name} (${wild.family} · rank ${wild.rank}) appears!`],
   };
@@ -322,11 +360,15 @@ export function enterZone(g: GameState, zoneId: string = "meadowmere"): GameStat
     unlockedZones,
     rivals,
     rivalBattleId: null,
+    guardianBattleWorldId: null,
   };
   return applyQuestEvent(next, { type: "enteredZone", zone: descriptor.id });
 }
 
-/** Start a battle against a SPECIFIC wild token (the roamer/grass you met). */
+/** Start a battle against a SPECIFIC wild token (the roamer/grass you met).
+ *  A Guardian roamer (id === GUARDIAN_ROAMER_ID) is recognized here and
+ *  flagged via `guardianBattleWorldId` — same battle system, a distinct
+ *  opening log line, and (on victory) the Heartseed award in `stepBattle`. */
 export function startEncounterWith(
   g: GameState,
   wildToken: CreatureToken,
@@ -334,6 +376,9 @@ export function startEncounterWith(
 ): GameState {
   const wild = creatureFromToken(wildToken);
   const battle = createBattle(partyCreatures(g), [wild], g.encounterSeed * 1000 + 7);
+  const zoneId = g.zone?.descriptor.id;
+  const isGuardian = roamerId === GUARDIAN_ROAMER_ID && !!zoneId;
+  const guardianTitle = zoneId ? GUARDIAN_TITLE[zoneId] : undefined;
   return {
     ...g,
     screen: "battle",
@@ -341,8 +386,12 @@ export function startEncounterWith(
     battle,
     outcome: null,
     zoneReturnRoamerId: roamerId,
+    guardianBattleWorldId: isGuardian ? (worldForZone(zoneId!)?.id ?? null) : null,
     roster: markSeen(g.roster, wildToken),
-    log: [`A wild ${wild.name} (${wild.family} · rank ${wild.rank}) appears!`],
+    log:
+      isGuardian && guardianTitle
+        ? [`${guardianTitle} rises to meet you — this is no ordinary foe.`]
+        : [`A wild ${wild.name} (${wild.family} · rank ${wild.rank}) appears!`],
   };
 }
 
@@ -424,6 +473,7 @@ export function startRivalBattle(g: GameState, rival: RivalState): GameState {
     battle,
     outcome: null,
     rivalBattleId: rival.id,
+    guardianBattleWorldId: null,
     zoneReturnRoamerId: null,
     log: [`${rival.name} blocks your path — a rival battle begins!`],
   };
@@ -437,10 +487,23 @@ function hashSeedFromId(id: string): number {
   return (h >>> 0) % 97 + 3;
 }
 
-/** After a zone battle resolves, return to the current zone (consuming that roamer). */
+/**
+ * After a zone battle resolves, return to the current zone (consuming that
+ * roamer). An ordinary wild roamer is ALWAYS consumed on return, win or lose
+ * (the existing design — it never re-triggers). A GUARDIAN roamer is the one
+ * exception: it's only removed on an actual victory (`outcome ===
+ * 'guardian-win'`) — on defeat/flee it stays exactly where it was, so the
+ * Guardian can be challenged again rather than vanishing on a loss.
+ */
 export function returnToZone(g: GameState): GameState {
+  const isUndefeatedGuardian =
+    g.zoneReturnRoamerId === GUARDIAN_ROAMER_ID && g.outcome !== "guardian-win";
+  // Undefeated Guardian: clear the `done` latch (so stepZone accepts input
+  // again) WITHOUT filtering the roamer out — pass no roamerId so it's kept.
+  // Any other case (a normal roamer, or a Guardian that WAS just defeated):
+  // consume the roamer exactly as before.
   const zone = g.zone
-    ? resumeAfterEncounter(g.zone, g.zoneReturnRoamerId ?? undefined)
+    ? resumeAfterEncounter(g.zone, isUndefeatedGuardian ? undefined : (g.zoneReturnRoamerId ?? undefined))
     : g.zone;
   const zoneId = g.zone?.descriptor.id ?? MEADOWMERE.id;
 
@@ -466,6 +529,7 @@ export function returnToZone(g: GameState): GameState {
     zone,
     zoneReturnRoamerId: null,
     rivalBattleId: null,
+    guardianBattleWorldId: null,
     rivals,
     encounterSeed: g.encounterSeed + 1,
   };
@@ -489,7 +553,14 @@ export function travelPortal(g: GameState, to: string): GameState {
 
 /** Step out of the overworld back to the TOWN (via a portal). Auto-saves. */
 export function exitZone(g: GameState): GameState {
-  const next: GameState = { ...g, screen: "town", zone: null, zoneReturnRoamerId: null, log: [] };
+  const next: GameState = {
+    ...g,
+    screen: "town",
+    zone: null,
+    zoneReturnRoamerId: null,
+    guardianBattleWorldId: null,
+    log: [],
+  };
   saveGame(next);
   return next;
 }
@@ -565,16 +636,25 @@ export function stepBattle(
   let economy = g.economy;
   let outcome: Outcome = g.outcome;
   let screen: Screen = g.screen;
+  let heartseeds = g.heartseeds;
 
   const scouted = events.find((e) => e.type === "scout" && e.success);
   const fled = events.find((e) => e.type === "flee" && e.success);
   const won = events.some((e) => e.type === "victory");
   const lost = events.some((e) => e.type === "defeat");
+  const guardianWorldId = g.guardianBattleWorldId;
 
   if (scouted && g.wildToken) {
     roster = addCreature(roster, g.wildToken);
     economy = addGold(economy, GOLD_SCOUT);
     outcome = "scouted";
+  } else if (won && guardianWorldId) {
+    // The Guardian falls: award its world's Heartseed + a heftier purse, and
+    // surface the "guardian-win" outcome so the view can show a distinct,
+    // warmer beat than an ordinary wild victory.
+    economy = addGold(economy, GOLD_GUARDIAN_WIN);
+    heartseeds = awardHeartseed(heartseeds, guardianWorldId);
+    outcome = "guardian-win";
   } else if (won) {
     economy = addGold(economy, GOLD_WIN);
     outcome = "win";
@@ -586,7 +666,15 @@ export function stepBattle(
 
   if (outcome) screen = "battle"; // stay to show the result banner; player taps Continue
 
-  let next: GameState = { ...g, battle: state, roster, economy, outcome, screen, log: newLog.slice(-8) };
+  if (outcome === "guardian-win") {
+    const world = worldForZone(g.zone?.descriptor.id ?? "");
+    const title = g.zone ? GUARDIAN_TITLE[g.zone.descriptor.id] : undefined;
+    if (world && title) {
+      newLog.push(`${title} falls — you recovered ${world.seedName}!`);
+    }
+  }
+
+  let next: GameState = { ...g, battle: state, roster, economy, outcome, screen, heartseeds, log: newLog.slice(-8) };
 
   // Quest progress: a successful scout advances scout-family/scout-any +
   // grows the Dex tally; a won RIVAL battle advances defeat-rival for that
@@ -612,6 +700,7 @@ export function leaveBattle(g: GameState): GameState {
     wildToken: null,
     outcome: null,
     rivalBattleId: null,
+    guardianBattleWorldId: null,
     encounterSeed: g.encounterSeed + 1,
     log: [],
   };
@@ -721,12 +810,19 @@ export function moveInTown(g: GameState, dx: number, dy: number): GameState {
 /** What a town step wants the view layer to do next (after the hop plays) —
  *  mirrors `ZonePending`'s shape so `TownScreen`'s onStep can drive the same
  *  "play a cue, short delay, then transition" beat ZoneScreen already uses
- *  for its golden-ring portals. */
-export type TownPending = { kind: "portal"; zoneId: string } | { kind: "home" } | null;
+ *  for its golden-ring portals. `dormant` never transitions anywhere — it's
+ *  just a hint beat ("this world still sleeps") for a not-yet-built world's pad. */
+export type TownPending =
+  | { kind: "portal"; zoneId: string }
+  | { kind: "home" }
+  | { kind: "tree" }
+  | { kind: "dormant"; label: string }
+  | null;
 
 /** Move in town, additionally reporting a pending transition if the player's
- *  NEW tile lands on a zone teleporter pad or the Home building's door tile.
- *  A no-op move (blocked step) never reports a pending transition. */
+ *  NEW tile lands on a zone teleporter pad, the Home building's door tile, the
+ *  Aldercradle, or a dormant future-world pad. A no-op move (blocked step)
+ *  never reports a pending transition. */
 export function townStep(
   g: GameState,
   dx: number,
@@ -741,6 +837,13 @@ export function townStep(
   }
   if (x === TOWN_HOME_TILE[0] && y === TOWN_HOME_TILE[1]) {
     return { game: next, pending: { kind: "home" } };
+  }
+  if (x === TOWN_TREE_TILE[0] && y === TOWN_TREE_TILE[1]) {
+    return { game: next, pending: { kind: "tree" } };
+  }
+  const dormant = dormantPadAt(x, y);
+  if (dormant) {
+    return { game: next, pending: { kind: "dormant", label: dormant.label } };
   }
   return { game: next, pending: null };
 }
@@ -891,4 +994,52 @@ export function tradeCreature(g: GameState, tokenId: string): GameState {
   const next: GameState = { ...g, roster, economy };
   saveGame(next);
   return next;
+}
+
+// ── ALDERCRADLE (the world-tree — town center, the Heartseed progression) ──
+
+/** Open the Aldercradle panel — reached by walking onto TOWN_TREE_TILE or
+ *  pressing E while adjacent (mirrors Home/villager interactions). */
+export function openAldercradle(g: GameState): GameState {
+  return { ...g, screen: "aldercradle" };
+}
+
+/** Leave the Aldercradle panel back to the town. */
+export function leaveAldercradle(g: GameState): GameState {
+  return { ...g, screen: "town" };
+}
+
+/** How many of the 8 Heartseeds are recovered (0..8) — the tree's bloom stage. */
+export function treeHealedCount(g: GameState): number {
+  return healedCount(g.heartseeds);
+}
+
+/** True once all 8 Heartseeds are recovered — gates the Aldercradle panel's
+ *  "The tree is whole" finale button. NOT reachable in normal play today
+ *  (only 3/8 worlds are built — see worldtree.ts's note), but the gate itself
+ *  is real: it flips the moment `heartseeds` actually holds all 8. */
+export function treeIsWhole(g: GameState): boolean {
+  return isTreeWhole(g.heartseeds);
+}
+
+/** Award a world's Heartseed directly (used by `stepBattle`'s Guardian-victory
+ *  path above; also handy for the Architect to force-test the 8/8 finale from
+ *  a console/devtools call — see the report for the exact snippet — WITHOUT
+ *  a debug button ever shipping in the UI). */
+export function awardWorldHeartseed(g: GameState, worldId: string): GameState {
+  return { ...g, heartseeds: awardHeartseed(g.heartseeds, worldId) };
+}
+
+/** Open the finale — GUARDED so it only ever does anything at 8/8; called
+ *  from the Aldercradle panel's "The tree is whole" button, which itself is
+ *  only rendered at 8/8, so this is a belt-and-suspenders no-op otherwise. */
+export function openFinale(g: GameState): GameState {
+  if (!treeIsWhole(g)) return g;
+  return { ...g, screen: "finale" };
+}
+
+/** Leave the finale back to the town (the endgame's own "what's next" screen
+ *  is out of this slice's scope — see the report). */
+export function leaveFinale(g: GameState): GameState {
+  return { ...g, screen: "town" };
 }
