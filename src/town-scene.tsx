@@ -28,7 +28,10 @@ import {
   TOWN_TILES,
   TOWN_WIDTH,
   TOWN_VILLAGERS,
+  TOWN_PORTALS,
+  TOWN_HOME_TILE,
   type TownDirection,
+  type TownPortal,
   type TownVillager,
 } from "./town.js";
 import "./town.css";
@@ -213,9 +216,69 @@ function TownTerrain() {
   );
 }
 
+/** A zone teleporter pad — the same golden-torus-ring + disc look
+ *  ZoneScene.tsx's portal tiles use, so a plaza pad reads as "the same kind of
+ *  thing" as the overworld portals, plus a small floating destination label
+ *  (a DOM billboard-free approach: an HTML nameplate positioned via the
+ *  Canvas's own screen-space projection would need extra wiring this task
+ *  doesn't need — the label just rides the same world tile visually via a
+ *  billboarded plane of text is overkill for one word, so this renders NO
+ *  in-canvas text; the destination reads from the HUD/hint overlay instead). */
+function PortalPad({ tile, w, h }: { tile: [number, number]; w: number; h: number }) {
+  const ring = useRef<THREE.Mesh>(null);
+  useFrame((_, dt) => {
+    if (ring.current) ring.current.rotation.z += dt * 0.5;
+  });
+  const [wx, , wz] = worldOf(tile[0], tile[1], w, h);
+  return (
+    <group position={[wx, 0.06, wz]}>
+      <mesh ref={ring} rotation={[-Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[0.7, 0.14, 12, 28]} />
+        <meshBasicMaterial color="#e7c86a" />
+      </mesh>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.04, 0]}>
+        <circleGeometry args={[0.7, 24]} />
+        <meshBasicMaterial color="#f4e3c4" transparent opacity={0.55} />
+      </mesh>
+    </group>
+  );
+}
+
+/** The Home building — a small cozy house reading clearly as a distinct
+ *  structure (not a villager, not a pad): a boxy body, a peaked roof, and a
+ *  warm little door. Entered by walking onto its tile or pressing E while
+ *  adjacent (mirrors the villager-talk interaction). */
+function HomeBuilding({ w, h }: { w: number; h: number }) {
+  const [wx, , wz] = worldOf(TOWN_HOME_TILE[0], TOWN_HOME_TILE[1], w, h);
+  return (
+    <group position={[wx, 0, wz]}>
+      <mesh position={[0, 0.55, 0]}>
+        <boxGeometry args={[1.5, 1.1, 1.3]} />
+        <meshToonMaterial color="#c9946b" />
+      </mesh>
+      <mesh position={[0, 1.28, 0]} rotation={[0, Math.PI / 4, 0]}>
+        <coneGeometry args={[1.15, 0.7, 4]} />
+        <meshToonMaterial color="#8a5a3a" />
+      </mesh>
+      <mesh position={[0, 0.35, 0.66]}>
+        <boxGeometry args={[0.42, 0.7, 0.06]} />
+        <meshToonMaterial color="#5a3a24" />
+      </mesh>
+      <mesh position={[0, 0.05, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[0.95, 20]} />
+        <meshBasicMaterial color="#f4d98a" transparent opacity={0.32} depthWrite={false} />
+      </mesh>
+    </group>
+  );
+}
+
 export interface TownSceneProps {
   /** The villager roster to render (defaults to the full town.ts roster). */
   villagers?: TownVillager[];
+  /** Zone teleporter pads to render (default the full TOWN_PORTALS list) —
+   *  the caller filters this to `game.unlockedZones` before passing it in, so
+   *  a not-yet-unlocked zone's pad never appears in the plaza. */
+  portals?: TownPortal[];
   /** The player's current grid tile — this component tweens toward it. */
   playerTile: [number, number];
   /** Fired when the Architect's input layer requests a grid step (WASD/d-pad).
@@ -226,6 +289,8 @@ export interface TownSceneProps {
    *  `null` when no villager is in range. Drive an "E: talk to <name>" prompt
    *  off this from the caller side, or use the built-in hint below. */
   onApproach: (villagerId: string | null) => void;
+  /** Fired whenever adjacency to the Home building's door tile changes. */
+  onApproachHome?: (near: boolean) => void;
   /** Show the built-in "E: talk to <name>" hint overlay. Default true. */
   showApproachHint?: boolean;
 }
@@ -237,9 +302,11 @@ function gridDistance(ax: number, ay: number, bx: number, by: number): number {
 
 export function TownScene({
   villagers = TOWN_VILLAGERS,
+  portals = TOWN_PORTALS,
   playerTile,
   onMove: _onMove,
   onApproach,
+  onApproachHome,
   showApproachHint = true,
 }: TownSceneProps) {
   const playerPos = useRef(new THREE.Vector3());
@@ -272,6 +339,20 @@ export function TownScene({
     }
   }, [nearestVillager, onApproach]);
 
+  // Same adjacency rule as villagers — the Home door tile itself, or one
+  // cardinal step away, counts as "near enough to press E".
+  const nearHome = useMemo(
+    () => gridDistance(playerTile[0], playerTile[1], TOWN_HOME_TILE[0], TOWN_HOME_TILE[1]) <= APPROACH_RADIUS,
+    [playerTile],
+  );
+  const lastNearHome = useRef(false);
+  useEffect(() => {
+    if (lastNearHome.current !== nearHome) {
+      lastNearHome.current = nearHome;
+      onApproachHome?.(nearHome);
+    }
+  }, [nearHome, onApproachHome]);
+
   return (
     <>
       <Canvas
@@ -285,6 +366,10 @@ export function TownScene({
         <GooberEnv palette={ZONE_PALETTE} />
         <FollowCam target={playerPos} />
         <TownTerrain />
+        <HomeBuilding w={w} h={h} />
+        {portals.map((p) => (
+          <PortalPad key={p.zoneId} tile={p.tile} w={w} h={h} />
+        ))}
         <Actor
           spec={specForSeed("player")}
           tx={playerTile[0]}
@@ -309,6 +394,9 @@ export function TownScene({
       </Canvas>
       {showApproachHint && nearestVillager && (
         <div className="town-approach-hint">E: talk to {nearestVillager.name}</div>
+      )}
+      {showApproachHint && !nearestVillager && nearHome && (
+        <div className="town-approach-hint">E: enter Home</div>
       )}
     </>
   );
