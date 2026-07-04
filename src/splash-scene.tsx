@@ -18,7 +18,7 @@ import { useMemo, useRef } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import type { GooberSpec } from "game-kit/creature";
-import { Goober } from "./Goober.js";
+import { Goober, gooberGroundLift } from "./Goober.js";
 import { AldercradleTreeProp } from "./town-props.js";
 import { ContactBlob, GooberEnv, STAGE_PALETTE } from "./env.js";
 import { ResponsiveFov } from "./responsive-cam.js";
@@ -102,14 +102,21 @@ function BouncingGoober({
 }) {
   const group = useRef<THREE.Group>(null);
   const reducedMotion = getReducedMotion();
+  // Rest height that keeps the body ABOVE the grass (its low-packed metaballs
+  // would otherwise sink through y=0); the bounce hop rides on top of this.
+  const lift = useMemo(() => gooberGroundLift(spec, sizeScale), [spec, sizeScale]);
 
   useFrame((state) => {
-    if (!group.current || reducedMotion) return;
+    if (!group.current) return;
+    if (reducedMotion) {
+      group.current.position.y = lift;
+      return;
+    }
     // abs(sin) gives a springy "hop, land, hop" cadence rather than a smooth
     // up-down sine drift — reads as bouncing, not floating.
     const t = state.clock.elapsedTime * BOUNCE_SPEED + phase;
     const hop = Math.abs(Math.sin(t)) * BOUNCE_HEIGHT;
-    group.current.position.y = hop;
+    group.current.position.y = lift + hop;
     // A touch of squash on landing (low hop) / stretch at the peak, cheap
     // life-in-the-drawing sell for the bounce.
     const squash = 1 - Math.max(0, 0.18 - hop) * 0.9;

@@ -20,6 +20,28 @@ const toGeom = (x: number, y: number, z: number): [number, number, number] => [
   2 * K * z,
 ];
 
+/** The world-space scale a Goober applies to its [-1,1] body geometry
+ *  (`base = spec.scale * WORLD * sizeScale`). Exported so scenes that PLACE a
+ *  goober can size things off it (e.g. how far to lift it off the ground). */
+export function gooberBase(spec: GooberSpec, sizeScale = 1): number {
+  return spec.scale * WORLD * sizeScale;
+}
+
+// How far above the ground plane to sit a goober's group, as a multiple of its
+// `base`. YOFF packs the metaballs into the LOWER part of the [-1,1] geometry
+// box (body center ≈ geom y −0.72), so a group placed at y=0 buries the
+// creature's lower half through the y=0 floor. Lifting by ~1.2·base clears the
+// body above the grass (matching the Dex/party hover the Director approved) with
+// its soft ContactBlob shadow left on the ground. Callers that want a goober to
+// rest on the floor pass this as the group's / position's y.
+const GROUND_LIFT_FACTOR = 1.2;
+
+/** World-Y offset that lifts a placed goober so its body rests ABOVE the ground
+ *  plane instead of sinking its lower half through y=0. See GROUND_LIFT_FACTOR. */
+export function gooberGroundLift(spec: GooberSpec, sizeScale = 1): number {
+  return gooberBase(spec, sizeScale) * GROUND_LIFT_FACTOR;
+}
+
 // ── shading knobs (taste-tunable, single numbers) ──
 // Cel-shading band count for the toon gradient map: fewer bands = chunkier,
 // more painterly cartoon look; more bands = smoother falloff.

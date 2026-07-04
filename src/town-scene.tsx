@@ -20,7 +20,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { Billboard } from "game-kit/billboard/r3f";
 import { type GooberSpec } from "game-kit/creature";
-import { Goober } from "./Goober.js";
+import { Goober, gooberGroundLift } from "./Goober.js";
 import { specForSeed } from "./goober-cache.js";
 import { Villager } from "./villager-npc.js";
 import { ContactBlob, GooberEnv, ZONE_PALETTE } from "./env.js";
@@ -132,7 +132,11 @@ function makeTownGroundTexture(): THREE.CanvasTexture {
   return tex;
 }
 
-/** A goober that tweens toward its tile with a little hop arc, billboarded. */
+/** A goober that tweens toward its tile with a little hop arc. Lifted
+ *  `gooberGroundLift` off the tile so its body rests on the plaza rather than
+ *  sinking through y=0 (shadow/ring stays on the ground). The player passes
+ *  `directional` to face its walk heading (eyes lead the walk) instead of
+ *  billboarding — see ZoneScene's Actor for the full rationale. */
 function Actor({
   spec,
   tx,
@@ -142,6 +146,7 @@ function Actor({
   seed,
   posOut,
   tint,
+  directional,
 }: {
   spec: GooberSpec;
   tx: number;
@@ -151,17 +156,29 @@ function Actor({
   seed: number;
   posOut?: React.MutableRefObject<THREE.Vector3>;
   tint?: string;
+  /** When set, the goober faces its walk direction instead of billboarding (the player). */
+  directional?: boolean;
 }) {
   const grp = useRef<THREE.Group>(null);
   const cur = useRef<THREE.Vector3>(new THREE.Vector3(...worldOf(tx, ty, w, h)));
+  const facing = useRef(0); // 0 = facing +Z = toward camera (see ZoneScene Actor)
+  const lift = useMemo(() => gooberGroundLift(spec, GOOBER_SIZE), [spec]);
   useFrame(() => {
     const [wx, , wz] = worldOf(tx, ty, w, h);
-    cur.current.x += (wx - cur.current.x) * 0.25;
-    cur.current.z += (wz - cur.current.z) * 0.25;
+    const dx = wx - cur.current.x;
+    const dz = wz - cur.current.z;
+    if (directional && dx * dx + dz * dz > 0.0004) {
+      facing.current = Math.atan2(dx, dz);
+    }
+    cur.current.x += dx * 0.25;
+    cur.current.z += dz * 0.25;
     const dist = Math.hypot(wx - cur.current.x, wz - cur.current.z);
     const p = 1 - Math.min(dist / TILE, 1);
     const hop = Math.sin(p * Math.PI) * HOP_H;
-    if (grp.current) grp.current.position.set(cur.current.x, hop, cur.current.z);
+    if (grp.current) {
+      grp.current.position.set(cur.current.x, hop, cur.current.z);
+      if (directional) grp.current.rotation.y = facing.current;
+    }
     if (posOut) posOut.current.set(cur.current.x, 0, cur.current.z);
   });
   return (
@@ -176,9 +193,13 @@ function Actor({
       ) : (
         <ContactBlob position={[0, 0, 0]} radius={GOOBER_SIZE * 1.6} />
       )}
-      <Billboard>
-        <Goober spec={spec} position={[0, 0, 0]} seed={seed} sizeScale={GOOBER_SIZE} />
-      </Billboard>
+      {directional ? (
+        <Goober spec={spec} position={[0, lift, 0]} seed={seed} sizeScale={GOOBER_SIZE} />
+      ) : (
+        <Billboard>
+          <Goober spec={spec} position={[0, lift, 0]} seed={seed} sizeScale={GOOBER_SIZE} />
+        </Billboard>
+      )}
     </group>
   );
 }
@@ -493,6 +514,7 @@ export function TownScene({
           h={h}
           seed={99}
           posOut={playerPos}
+          directional
         />
         {villagers.map((v) => (
           <VillagerActor

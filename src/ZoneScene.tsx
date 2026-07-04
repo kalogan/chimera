@@ -14,7 +14,7 @@ import * as THREE from "three";
 import { Billboard } from "game-kit/billboard/r3f";
 import { type GooberSpec } from "game-kit/creature";
 import type { ZoneState } from "game-kit/world-runtime";
-import { Goober } from "./Goober.js";
+import { Goober, gooberGroundLift } from "./Goober.js";
 import { specForToken } from "./goober-cache.js";
 import { ResponsiveFov } from "./responsive-cam.js";
 import { getQuality } from "./quality.js";
@@ -226,7 +226,19 @@ function RivalMarker({ color = "#e97b4f" }: { color?: string }) {
   );
 }
 
-/** A goober that tweens toward its tile with a little hop arc, billboarded. */
+/** A goober that tweens toward its tile with a little hop arc.
+ *
+ *  RENDERING: goobers are lifted `gooberGroundLift` above the tile so their
+ *  low-packed body rests on the grass instead of sinking its lower half through
+ *  the y=0 plane (the ContactBlob shadow stays on the ground).
+ *
+ *  FACING: wild roamers/rivals stay `<Billboard>`-ed (always meeting the
+ *  camera's eye — reads friendly). The PLAYER passes `directional`, which drops
+ *  the billboard and instead yaws the goober toward its last movement direction
+ *  — so the character turns to face where it walks (down = toward camera = full
+ *  face; up = its back; left/right = profile), and you plainly see its eyes when
+ *  walking toward the camera. `atan2(dx, dz)` matches the kit's +Z-forward
+ *  billboard convention, so the eyes (authored at +Z) lead the walk. */
 function Actor({
   spec,
   tx,
@@ -236,6 +248,7 @@ function Actor({
   seed,
   posOut,
   rival,
+  directional,
 }: {
   spec: GooberSpec;
   tx: number;
@@ -246,27 +259,47 @@ function Actor({
   posOut?: React.MutableRefObject<THREE.Vector3>;
   /** When set, renders the "trainer, not wild" ring marker instead of a ContactBlob. */
   rival?: boolean;
+  /** When set, the goober faces its walk direction instead of billboarding (the player). */
+  directional?: boolean;
 }) {
   const grp = useRef<THREE.Group>(null);
   const cur = useRef<THREE.Vector3>(
     new THREE.Vector3(...worldOf(tx, ty, w, h)),
   );
+  // Last heading (radians). Starts at 0 = facing +Z = toward the camera, so a
+  // freshly-spawned/standing player shows its face rather than its back.
+  const facing = useRef(0);
+  const lift = useMemo(() => gooberGroundLift(spec, GOOBER_SIZE), [spec]);
   useFrame(() => {
     const [wx, , wz] = worldOf(tx, ty, w, h);
-    cur.current.x += (wx - cur.current.x) * 0.25;
-    cur.current.z += (wz - cur.current.z) * 0.25;
+    const dx = wx - cur.current.x;
+    const dz = wz - cur.current.z;
+    // Only re-aim while actually travelling (past a small deadzone), so facing
+    // holds steady once the step settles rather than snapping back to 0.
+    if (directional && dx * dx + dz * dz > 0.0004) {
+      facing.current = Math.atan2(dx, dz);
+    }
+    cur.current.x += dx * 0.25;
+    cur.current.z += dz * 0.25;
     const dist = Math.hypot(wx - cur.current.x, wz - cur.current.z);
     const p = 1 - Math.min(dist / TILE, 1); // 0 at step start → 1 on arrival
     const hop = Math.sin(p * Math.PI) * HOP_H;
-    if (grp.current) grp.current.position.set(cur.current.x, hop, cur.current.z);
+    if (grp.current) {
+      grp.current.position.set(cur.current.x, hop, cur.current.z);
+      if (directional) grp.current.rotation.y = facing.current;
+    }
     if (posOut) posOut.current.set(cur.current.x, 0, cur.current.z);
   });
   return (
     <group ref={grp}>
       {rival ? <RivalMarker /> : <ContactBlob position={[0, 0, 0]} radius={GOOBER_SIZE * 1.6} />}
-      <Billboard>
-        <Goober spec={spec} position={[0, 0, 0]} seed={seed} sizeScale={GOOBER_SIZE} />
-      </Billboard>
+      {directional ? (
+        <Goober spec={spec} position={[0, lift, 0]} seed={seed} sizeScale={GOOBER_SIZE} />
+      ) : (
+        <Billboard>
+          <Goober spec={spec} position={[0, lift, 0]} seed={seed} sizeScale={GOOBER_SIZE} />
+        </Billboard>
+      )}
     </group>
   );
 }
@@ -387,6 +420,7 @@ export function ZoneScene({
         h={h}
         seed={99}
         posOut={playerPos}
+        directional
       />
       {zone.roamers.map((r) => (
         <Actor
