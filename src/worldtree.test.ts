@@ -1,16 +1,22 @@
 /**
- * worldtree — proof of the Aldercradle world registry + Heartseed state:
- * exactly 8 worlds (3 built, 5 roadmap/dormant), award -> healedCount tracks
- * correctly, isTreeWhole only flips at 8/8, and the save round-trip (via
- * game.ts/save.ts) carries seeds across a reload.
+ * worldtree — proof of the Aldercradle world registry + Heartseed state: all
+ * 8 worlds now have a built zone (see zone.ts's ZONE_IDS), award ->
+ * healedCount tracks correctly, isTreeWhole only flips at 8/8, the LINEAR
+ * WORLD_ORDER chain gates unlock (derived from `heartseeds`, never
+ * persisted), and the save round-trip (via game.ts/save.ts) carries seeds
+ * across a reload.
  */
 import { describe, it, expect } from "vitest";
 import {
   WORLDS,
+  WORLD_ORDER,
   builtWorlds,
   dormantWorlds,
   worldById,
   worldForZone,
+  chainIndexOf,
+  isWorldUnlocked,
+  unlockedWorlds,
   createHeartseeds,
   isHealed,
   awardHeartseed,
@@ -28,17 +34,15 @@ describe("WORLDS registry integrity", () => {
     expect(new Set(WORLDS.map((w) => w.id)).size).toBe(8);
   });
 
-  it("has exactly 3 worlds with a built zone, matching zone.ts's ZONE_IDS", () => {
+  it("all 8 worlds have a built zone, matching zone.ts's ZONE_IDS exactly", () => {
     const built = builtWorlds();
-    expect(built.length).toBe(3);
+    expect(built.length).toBe(8);
     const zoneIds = built.map((w) => w.zoneId).sort();
     expect(zoneIds).toEqual([...ZONE_IDS].sort());
   });
 
-  it("has exactly 5 dormant (roadmap) worlds with no zone", () => {
-    const dormant = dormantWorlds();
-    expect(dormant.length).toBe(5);
-    for (const w of dormant) expect(w.zoneId).toBeNull();
+  it("has zero dormant (roadmap) worlds — every world is built today", () => {
+    expect(dormantWorlds().length).toBe(0);
   });
 
   it("worldById finds a known world and misses an unknown one", () => {
@@ -48,8 +52,13 @@ describe("WORLDS registry integrity", () => {
 
   it("worldForZone resolves each built zone id back to its world", () => {
     expect(worldForZone("meadowmere")?.id).toBe("beast");
+    expect(worldForZone("skyreach")?.id).toBe("bird");
     expect(worldForZone("emberdeep")?.id).toBe("dragon");
     expect(worldForZone("tidewrack")?.id).toBe("aquatic");
+    expect(worldForZone("oozehollow")?.id).toBe("slime");
+    expect(worldForZone("verdanthush")?.id).toBe("nature");
+    expect(worldForZone("stonewake")?.id).toBe("golem");
+    expect(worldForZone("hollowvale")?.id).toBe("spirit");
     expect(worldForZone("nowhere")).toBeUndefined();
   });
 
@@ -59,6 +68,64 @@ describe("WORLDS registry integrity", () => {
       expect(w.seedName.length).toBeGreaterThan(0);
       expect(w.lore.length).toBeGreaterThan(10);
     }
+  });
+});
+
+describe("WORLD_ORDER — the linear 8-step unlock chain", () => {
+  it("has exactly 8 entries, one per world, starting with beast and ending with spirit", () => {
+    expect(WORLD_ORDER.length).toBe(8);
+    expect(new Set(WORLD_ORDER).size).toBe(8);
+    expect(WORLD_ORDER[0]).toBe("beast");
+    expect(WORLD_ORDER[WORLD_ORDER.length - 1]).toBe("spirit");
+  });
+
+  it("chainIndexOf matches WORLD_ORDER's position, -1 for an unknown id", () => {
+    WORLD_ORDER.forEach((id, i) => expect(chainIndexOf(id)).toBe(i));
+    expect(chainIndexOf("nobody")).toBe(-1);
+  });
+});
+
+describe("isWorldUnlocked / unlockedWorlds — derived, save-safe unlock", () => {
+  it("a fresh Heartseeds record unlocks ONLY the first world in the chain", () => {
+    const seeds = createHeartseeds();
+    expect(isWorldUnlocked(seeds, WORLD_ORDER[0]!)).toBe(true);
+    for (const id of WORLD_ORDER.slice(1)) expect(isWorldUnlocked(seeds, id)).toBe(false);
+    expect(unlockedWorlds(seeds).map((w) => w.id)).toEqual([WORLD_ORDER[0]]);
+  });
+
+  it("healing a world unlocks exactly the NEXT world in the chain, nothing further", () => {
+    let seeds = createHeartseeds();
+    seeds = awardHeartseed(seeds, WORLD_ORDER[0]!);
+    expect(isWorldUnlocked(seeds, WORLD_ORDER[1]!)).toBe(true);
+    expect(isWorldUnlocked(seeds, WORLD_ORDER[2]!)).toBe(false);
+  });
+
+  it("healing every world in order unlocks the whole chain, one step at a time", () => {
+    let seeds = createHeartseeds();
+    for (let i = 0; i < WORLD_ORDER.length; i++) {
+      expect(unlockedWorlds(seeds).length).toBe(i + 1);
+      seeds = awardHeartseed(seeds, WORLD_ORDER[i]!);
+    }
+    expect(unlockedWorlds(seeds).length).toBe(WORLD_ORDER.length);
+  });
+
+  it("an unknown world id is never unlocked", () => {
+    expect(isWorldUnlocked(createHeartseeds(), "nobody")).toBe(false);
+  });
+
+  it("unlock is DERIVED, not stored — a fresh game + a manually-awarded seed agree with a game restored via save/load", () => {
+    clearSave();
+    let g = newGame();
+    g = awardWorldHeartseed(g, WORLD_ORDER[0]!);
+    saveGame(g);
+    const loaded = loadGame()!;
+    const restored = applySave(newGame(), loaded);
+    // Unlock state recomputed fresh from the restored heartseeds matches the
+    // pre-save game exactly — nothing about "which pads are open" was ever
+    // itself persisted.
+    expect(unlockedWorlds(restored.heartseeds).map((w) => w.id)).toEqual(
+      unlockedWorlds(g.heartseeds).map((w) => w.id),
+    );
   });
 });
 
