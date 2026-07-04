@@ -8,10 +8,22 @@
  *
  * On Start: unlock audio (resumeAudio, mirroring App's existing first-gesture
  * pattern), start a soft ambient pad, then hand off to the Sanctuary.
+ *
+ * TITLE MUSIC: a warm looping melody (see ../splash-audio.ts) plays under the
+ * title. THE AUTOPLAY-POLICY BUG THIS FIXES: the AudioContext is SUSPENDED
+ * until the first user gesture, so a mount-time `startAmbient`/melody call is
+ * a silent no-op on a cold load — and the old onPointerDown here only called
+ * `resumeAudio()`, unlocking the context but never (re)starting anything, so
+ * the splash stayed silent even after tapping. Fix: start the melody on mount
+ * (covers audio already being unlocked from a prior gesture this session,
+ * e.g. returning to the title) AND again once `resumeAudio()` resolves on the
+ * first pointer/gesture (covers the cold-load case) — guarded by a ref so the
+ * gesture-triggered start only ever (re)arms once.
  */
 import { useEffect, useRef, useState } from "react";
 import { SplashScene } from "../splash-scene.js";
 import { audio, resumeAudio } from "../audio.js";
+import { startSplashMelody, stopSplashMelody } from "../splash-audio.js";
 
 export interface SplashProps {
   /** Begin a fresh playthrough (→ the intro cutscene → the town). */
@@ -35,14 +47,33 @@ export function Splash({ onNewGame, onContinue, onSettings }: SplashProps) {
     return () => window.clearTimeout(id);
   }, []);
 
-  // Splash gets its own soft ambient the moment audio unlocks (first tap
-  // anywhere on the splash), matching App's existing resumeAudio-on-gesture
-  // pattern. Torn down on unmount so it never bleeds into the Sanctuary's own
-  // ambient (PartyScreen starts its own via startAmbient there).
+  // Splash gets its own soft ambient the moment audio unlocks, plus the title
+  // melody (see ../splash-audio.ts). Torn down on unmount so neither bleeds
+  // into the Sanctuary's own ambient (PartyScreen starts its own via
+  // startAmbient there). This mount-time start is a no-op on a COLD load (the
+  // AudioContext is still suspended pre-gesture — see file header) but does
+  // cover returning to the title once audio is already unlocked this session.
   useEffect(() => {
     audio().startAmbient("splash-aldercradle");
-    return () => audio().stopAmbient();
+    startSplashMelody();
+    return () => {
+      audio().stopAmbient();
+      stopSplashMelody();
+    };
   }, []);
+
+  // First-gesture unlock + (re)arm: on a cold load the mount-time start above
+  // was a no-op, so once resumeAudio() actually resolves the context, kick the
+  // melody again here. startSplashMelody is idempotent (a module-level latch),
+  // so this is safe to fire alongside the mount-time call with no double-start
+  // / overlap. The armed ref just avoids re-awaiting resumeAudio() on every
+  // subsequent tap once we've already done it once.
+  const armedRef = useRef(false);
+  const armAudio = () => {
+    if (armedRef.current) return;
+    armedRef.current = true;
+    void resumeAudio().then(startSplashMelody);
+  };
 
   // New Game / Continue both leave the splash with a soft fade; Settings opens
   // its panel over the title (handled by the caller) without leaving.
@@ -50,7 +81,7 @@ export function Splash({ onNewGame, onContinue, onSettings }: SplashProps) {
     if (committed.current) return;
     committed.current = true;
     audio().playUi("confirm");
-    void resumeAudio();
+    armAudio();
     setLeaving(true);
     window.setTimeout(action, 260);
   };
@@ -59,7 +90,7 @@ export function Splash({ onNewGame, onContinue, onSettings }: SplashProps) {
     <div
       className="splash-wrap"
       style={{ opacity: leaving ? 0 : entered ? 1 : 0, transition: `opacity ${leaving ? 240 : 800}ms ease` }}
-      onPointerDown={() => void resumeAudio()}
+      onPointerDown={armAudio}
     >
       <SplashScene />
       <div className="overlay splash-overlay">
