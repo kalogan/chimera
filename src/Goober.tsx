@@ -3,14 +3,11 @@ import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { MarchingCubes } from "three/examples/jsm/objects/MarchingCubes.js";
 import type { GooberSpec } from "game-kit/creature";
-import { QUALITY } from "./quality.js";
+import { getQuality, getReducedMotion } from "./quality.js";
 
 // Field → world mapping. Metaballs live in the MarchingCubes [0,1] field; its mesh
 // spans geometry [-1,1]; a parent group scales that to WORLD. K scales creature-local
 // units into the field; YOFF lifts the creature so its feet sit near the field floor.
-// Field resolution is device-adaptive (48 desktop / ~22 low-end phone) — the
-// dominant per-goober render + build cost. See quality.ts.
-const RES = QUALITY.gooberRes;
 const ISO = 80;
 const SUB = 12;
 const K = 0.26;
@@ -116,6 +113,10 @@ export function Goober({
   const base = spec.scale * WORLD * sizeScale;
   const group = useRef<THREE.Group>(null);
   const eyeGroup = useRef<THREE.Group>(null);
+  // Device-adaptive (read once per mount; a Settings change re-mounts scenes).
+  const RES = getQuality().gooberRes;
+  const rim = getQuality().rim;
+  const reducedMotion = getReducedMotion();
 
   const mc = useMemo(() => {
     const mat = new THREE.MeshToonMaterial({
@@ -138,7 +139,7 @@ export function Goober({
     }
     m.update();
     return m;
-  }, [spec]);
+  }, [spec, RES]);
 
   // Fresnel rim-light shell: reuses the MC-generated geometry (no extra field
   // solve), additive-blended so it only ever brightens the silhouette edge.
@@ -169,6 +170,11 @@ export function Goober({
         group.current.scale.setScalar(base * 0.9);
         group.current.position.y = position[1] - 0.5;
         group.current.rotation.set(0, facing, 1.15);
+      } else if (reducedMotion) {
+        // Accessibility: hold a still, upright pose — no breathe/bob/wobble.
+        group.current.scale.setScalar(base);
+        group.current.position.y = position[1];
+        group.current.rotation.set(0, facing, 0);
       } else {
         const breathe = 1 + Math.sin(t * 1.6 + ph) * 0.035;
         group.current.scale.setScalar(base * breathe);
@@ -179,6 +185,8 @@ export function Goober({
     if (eyeGroup.current) {
       if (fainted) {
         eyeGroup.current.scale.y = 0.12; // eyes closed
+      } else if (reducedMotion) {
+        eyeGroup.current.scale.y = 1; // no blink
       } else {
         // Blink: a brief eye-white squash on a slow, offset cycle.
         const cycle = (t * 0.9 + ph) % 4;
@@ -196,7 +204,7 @@ export function Goober({
       rotation={[0, facing, 0]}
     >
       <primitive object={mc} />
-      {QUALITY.rim && <mesh geometry={mc.geometry} material={rimMat} />}
+      {rim && <mesh geometry={mc.geometry} material={rimMat} />}
       <group ref={eyeGroup}>
         {spec.eyes.map((e, i) => {
           const g = toGeom(e.x, e.y, e.z);

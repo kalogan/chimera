@@ -12,7 +12,15 @@
  */
 import { useEffect } from "react";
 import { audio } from "../audio.js";
-import { useSettings } from "./settings-store.js";
+import { activeDeviceTier } from "../quality.js";
+import { useSettings, type QualityTier } from "./settings-store.js";
+
+const QUALITY_OPTIONS: { value: QualityTier; label: string }[] = [
+  { value: "auto", label: "Auto" },
+  { value: "low", label: "Low" },
+  { value: "mid", label: "Mid" },
+  { value: "high", label: "High" },
+];
 
 export interface SettingsPanelProps {
   /** Back out of the panel (Esc, ✕, or the Back button). */
@@ -72,6 +80,22 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
         </div>
 
         <div className="settings-section">
+          <div className="settings-section-title">Graphics</div>
+          <Segmented
+            label="Quality"
+            options={QUALITY_OPTIONS}
+            value={settings.qualityTier}
+            onChange={(v) => { audio().playUi("select"); setSettings({ qualityTier: v }); }}
+          />
+          <div className="settings-hint">
+            {settings.qualityTier === "auto"
+              ? `Auto detected: ${activeDeviceTier()}. `
+              : ""}
+            Lower = smoother on phones. Applies when you next enter a scene.
+          </div>
+        </div>
+
+        <div className="settings-section">
           <div className="settings-section-title">Accessibility</div>
           <Toggle
             label="Reduced motion"
@@ -106,6 +130,38 @@ function Slider({
         className="settings-slider"
       />
       <span className="settings-row-value">{Math.round(value * 100)}</span>
+    </label>
+  );
+}
+
+function Segmented<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: { value: T; label: string }[];
+  value: T;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <label className="settings-row">
+      <span className="settings-row-label">{label}</span>
+      <div className="settings-segmented" role="radiogroup" aria-label={label}>
+        {options.map((o) => (
+          <button
+            key={o.value}
+            type="button"
+            role="radio"
+            aria-checked={value === o.value}
+            className={`seg-opt ${value === o.value ? "on" : ""}`}
+            onClick={() => onChange(o.value)}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
     </label>
   );
 }

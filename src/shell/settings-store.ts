@@ -12,14 +12,20 @@
 import { useEffect, useState } from "react";
 import { createSettingsStore, type SettingsStore } from "game-kit/settings";
 
+/** Render-quality tier. 'auto' = pick from the device (game-kit/perf detectDeviceTier);
+ *  the rest force a fixed tier (DPR cap + MarchingCubes resolution + rim shell). */
+export type QualityTier = "auto" | "low" | "mid" | "high";
+
 export interface ChimeraSettings {
   /** Bus volumes, 0..1 — mirrored onto the shared SpatialAudio rig's buses. */
   masterVolume: number;
   musicVolume: number;
   sfxVolume: number;
   criesVolume: number;
-  /** Trims/removes ambient motion (drifting splash backdrop, etc). */
+  /** Trims/removes ambient motion (drifting splash backdrop, goober idle bob). */
   reducedMotion: boolean;
+  /** Render quality — see src/quality.ts. Applies when a scene next mounts. */
+  qualityTier: QualityTier;
 }
 
 export const DEFAULT_SETTINGS: ChimeraSettings = {
@@ -28,6 +34,7 @@ export const DEFAULT_SETTINGS: ChimeraSettings = {
   sfxVolume: 0.8,
   criesVolume: 0.9,
   reducedMotion: false,
+  qualityTier: "auto",
 };
 
 const SETTINGS_KEY = "chimera.settings";

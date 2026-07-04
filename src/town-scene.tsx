@@ -21,7 +21,7 @@ import { creatureFromToken, seedToken, type GooberSpec } from "game-kit/creature
 import { Goober } from "./Goober.js";
 import { ContactBlob, GooberEnv, ZONE_PALETTE } from "./env.js";
 import { ResponsiveFov } from "./responsive-cam.js";
-import { QUALITY } from "./quality.js";
+import { getQuality } from "./quality.js";
 import {
   TOWN_HEIGHT,
   TOWN_TILES,
@@ -276,7 +276,7 @@ export function TownScene({
       <Canvas
         className="stage"
         shadows={false}
-        dpr={[1, QUALITY.dprCap]}
+        dpr={[1, getQuality().dprCap]}
         camera={{ position: [spawnX, CAM_UP, spawnZ + CAM_BACK], fov: CAM_FOV }}
       >
         <color attach="background" args={[TOWN_BG]} />

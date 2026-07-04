@@ -5,7 +5,7 @@ import type { GooberSpec } from "game-kit/creature";
 import { Goober } from "./Goober.js";
 import { ContactBlob, GooberEnv, STAGE_PALETTE, type EnvPalette } from "./env.js";
 import { ResponsiveFov } from "./responsive-cam.js";
-import { QUALITY } from "./quality.js";
+import { getQuality } from "./quality.js";
 
 export interface Placed {
   id: string;
@@ -71,7 +71,7 @@ export function GooberStage({
 }) {
   const groundTex = useMemo(() => makeStageGroundTexture(ground), [ground]);
   return (
-    <Canvas className="stage" camera={{ position: cameraPos, fov }} shadows={false} dpr={[1, QUALITY.dprCap]}>
+    <Canvas className="stage" camera={{ position: cameraPos, fov }} shadows={false} dpr={[1, getQuality().dprCap]}>
       <ResponsiveFov baseFov={fov} />
       <color attach="background" args={[bg]} />
       <GooberEnv palette={palette} />

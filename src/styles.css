@@ -256,3 +256,13 @@ button.act.bond { border-color: var(--bond); }
 .ins-hist { font-size: 11px; padding: 2px 7px; border-radius: 6px; background: #2a2534; text-transform: capitalize; }
 .ins-hist.grok { background: #3a2a52; }
 .ins-hist.utility-fallback { background: #52362a; }
+
+/* Settings — segmented (quality tier) + hint */
+.settings-segmented { display: flex; gap: 4px; flex: 1; }
+.seg-opt {
+  flex: 1; padding: 7px 4px; border: 1px solid var(--parchment-2, #e6d9bf);
+  background: var(--panel, #fff8ec); border-radius: 8px; cursor: pointer;
+  font-size: 13px; font-weight: 600; color: var(--warm-deep, #6b4f2a);
+}
+.seg-opt.on { background: #e7a54a; border-color: #b8863a; color: #fff; }
+.settings-hint { font-size: 11.5px; opacity: 0.7; margin-top: 6px; line-height: 1.35; }
