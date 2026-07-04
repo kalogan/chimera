@@ -22,6 +22,7 @@ import {
   type BattleState,
   type BattleAction,
   type BattleEvent,
+  type BattleItemEffect,
   type Combatant,
 } from "game-kit/battle";
 import {
@@ -38,6 +39,8 @@ import {
   addGold,
   buy,
   sell,
+  useItem,
+  itemDef,
   type EconomyState,
 } from "game-kit/economy";
 import { MEADOWMERE } from "./zone.js";
@@ -484,4 +487,60 @@ export function buyItem(g: GameState, id: string): GameState {
 export function sellItem(g: GameState, id: string): GameState {
   const { state, ok } = sell(g.economy, id, 1);
   return ok ? { ...g, economy: state } : g;
+}
+
+// ── In-battle item use (Wave 3) ────────────────────────────────────────────────
+
+// Item kinds usable in a fight (bait/stat-seeds/catalysts are not battle items).
+const BATTLE_ITEM_KINDS = new Set(["heal", "mp", "revive"]);
+
+export interface BattleItemOption { id: string; name: string; count: number; kind: string }
+
+/** Inventory items that can be used in battle right now, with counts. */
+export function usableBattleItems(g: GameState): BattleItemOption[] {
+  const out: BattleItemOption[] = [];
+  for (const [id, count] of Object.entries(g.economy.items)) {
+    if (count <= 0) continue;
+    const def = itemDef(id);
+    if (def && BATTLE_ITEM_KINDS.has(def.effect.kind)) {
+      out.push({ id, name: def.name, count, kind: def.effect.kind });
+    }
+  }
+  return out;
+}
+
+function toBattleEffect(kind: string, amount?: number): BattleItemEffect | null {
+  switch (kind) {
+    case "heal": return { heal: amount ?? 0 };
+    case "mp": return { mp: amount ?? 0 };
+    case "revive": return { revive: true };
+    default: return null;
+  }
+}
+
+/** Which ally an item targets: a fainted ally for revive, else the lowest-HP
+ *  (heal) / lowest-MP (mp) living ally. Null if there is no valid target. */
+export function itemTargetId(battle: BattleState, itemId: string): string | null {
+  const kind = itemDef(itemId)?.effect.kind;
+  const team = battle.playerTeam;
+  if (kind === "revive") return team.find((c) => !c.alive)?.id ?? null;
+  const living = team.filter((c) => c.alive);
+  if (living.length === 0) return null;
+  if (kind === "mp") return living.reduce((lo, c) => (c.currentMp < lo.currentMp ? c : lo)).id;
+  return living.reduce((lo, c) => (c.currentHp < lo.currentHp ? c : lo)).id;
+}
+
+/** Use an inventory item on an ally mid-battle: decrement the item, then apply
+ *  its effect via the battle 'item' action (which consumes the turn). */
+export function useItemInBattle(
+  g: GameState,
+  itemId: string,
+  targetId: string,
+): { game: GameState; events: BattleEvent[] } {
+  if (!g.battle) return { game: g, events: [] };
+  const { state: economy, ok, effect } = useItem(g.economy, itemId);
+  if (!ok || !effect) return { game: g, events: [] };
+  const battleEffect = toBattleEffect(effect.kind, effect.amount);
+  if (!battleEffect) return { game: g, events: [] };
+  return stepBattle({ ...g, economy }, { type: "item", targetId, effect: battleEffect });
 }

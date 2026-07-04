@@ -32,6 +32,9 @@ import {
   openShop,
   buyItem,
   sellItem,
+  usableBattleItems,
+  itemTargetId,
+  useItemInBattle,
   type GameState,
 } from "./game.js";
 
@@ -292,6 +295,17 @@ function BattleScreen({ game, setGame, onPause }: ScreenProps & { onPause: () =>
     setGame(g2);
   };
   const target = defaultTargetId(b);
+  const [itemMenu, setItemMenu] = useState(false);
+  const items = usableBattleItems(game);
+  const doItem = (itemId: string) => {
+    const tid = itemTargetId(b, itemId);
+    if (!tid) return;
+    audio().playUi("confirm");
+    const { game: g2, events } = useItemInBattle(game, itemId, tid);
+    playBattleEvents(audio(), events);
+    setGame(g2);
+    setItemMenu(false);
+  };
 
   return (
     <>
@@ -318,18 +332,31 @@ function BattleScreen({ game, setGame, onPause }: ScreenProps & { onPause: () =>
               {game.zone ? "Back to the meadow →" : "Return to the Sanctuary →"}
             </button>
           ) : actor && target ? (
-            <>
-              <button className="act primary" onClick={() => doAction({ type: "attack", targetId: target })}>Attack</button>
-              {actor.skills.slice(0, 3).map((s) => (
-                <button key={s.id} className="act" disabled={actor.currentMp < s.mpCost}
-                  onClick={() => doAction({ type: "skill", skillId: s.id, targetId: target })}>
-                  {s.name} <small>({s.mpCost})</small>
-                </button>
-              ))}
-              <button className="act bond" onClick={() => doAction({ type: "scout", targetId: target })}>Scout 🤝</button>
-              <button className="act" onClick={() => doAction({ type: "defend" })}>Defend</button>
-              <button className="act" onClick={() => doAction({ type: "flee" })}>Flee</button>
-            </>
+            itemMenu ? (
+              <>
+                {items.length === 0 && <div className="hint">No usable items.</div>}
+                {items.map((it) => (
+                  <button key={it.id} className="act" onClick={() => doItem(it.id)}>
+                    {it.name} <small>×{it.count}</small>
+                  </button>
+                ))}
+                <button className="act" onClick={() => setItemMenu(false)}>← Back</button>
+              </>
+            ) : (
+              <>
+                <button className="act primary" onClick={() => doAction({ type: "attack", targetId: target })}>Attack</button>
+                {actor.skills.slice(0, 3).map((s) => (
+                  <button key={s.id} className="act" disabled={actor.currentMp < s.mpCost}
+                    onClick={() => doAction({ type: "skill", skillId: s.id, targetId: target })}>
+                    {s.name} <small>({s.mpCost})</small>
+                  </button>
+                ))}
+                <button className="act bond" onClick={() => doAction({ type: "scout", targetId: target })}>Scout 🤝</button>
+                <button className="act" disabled={items.length === 0} onClick={() => setItemMenu(true)}>Items 🎒</button>
+                <button className="act" onClick={() => doAction({ type: "defend" })}>Defend</button>
+                <button className="act" onClick={() => doAction({ type: "flee" })}>Flee</button>
+              </>
+            )
           ) : (
             <div className="hint">…resolving…</div>
           )}
