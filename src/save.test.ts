@@ -73,6 +73,7 @@ describe("save/load round-trip", () => {
       breedSeed: 1,
       unlockedZones: ["meadowmere"],
       heartseeds: {},
+      leveling: {},
     });
     expect(() => loadGame()).not.toThrow();
     expect(loadGame()).toBeNull();

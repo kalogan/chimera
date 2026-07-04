@@ -56,7 +56,15 @@ import {
   type QuestEvent,
   type QuestDef,
 } from "game-kit/quest";
-import { MEADOWMERE, ZONES, zoneById, SANCTUARY_TARGET, GUARDIAN_ROAMER_ID, GUARDIAN_TITLE } from "./zone.js";
+import {
+  MEADOWMERE,
+  ZONES,
+  zoneById,
+  SANCTUARY_TARGET,
+  GUARDIAN_ROAMER_ID,
+  GUARDIAN_TITLE,
+  enemyLevelForToken,
+} from "./zone.js";
 import {
   makeRivals,
   makeRivalCtx,
@@ -83,6 +91,15 @@ import {
   worldForZone,
   type Heartseeds,
 } from "./worldtree.js";
+import {
+  createLeveling,
+  levelOf,
+  leveledStats,
+  creatureAtLevel,
+  grantXpToParty,
+  xpForDefeatedTeam,
+  type LevelingState,
+} from "./leveling.js";
 
 export type Screen =
   | "home"
@@ -165,6 +182,16 @@ export interface GameState {
   // ordinary wild/rival battle.
   heartseeds: Heartseeds;
   guardianBattleWorldId: string | null;
+  // LEVELING (Polymatrix-adapted). `leveling` is the PERSISTED per-creature
+  // `{ level, exp }` map keyed by CreatureToken.id (see leveling.ts) —
+  // ORTHOGONAL to the rank/+/generation axis already baked into a token by
+  // `creatureFromToken`; a creature not yet in the map is level 1 / 0 exp.
+  // `lastLevelUps` is TRANSIENT (screen-local, not saved): the roster of
+  // "who leveled up, old -> new" from the most recently resolved battle win,
+  // read by BattleScreen's victory banner then cleared on the next battle/
+  // leave — mirrors `outcome`'s own battle-scoped lifetime.
+  leveling: LevelingState;
+  lastLevelUps: { tokenId: string; from: number; to: number }[];
 }
 
 /**
@@ -259,6 +286,8 @@ export function newGame(): GameState {
     quests: createQuestLog(),
     heartseeds: createHeartseeds(),
     guardianBattleWorldId: null,
+    leveling: createLeveling(),
+    lastLevelUps: [],
   };
 }
 
@@ -294,6 +323,10 @@ export function applySave(g: GameState, data: SaveData): GameState {
     // Older saves may predate this field entirely (see save.ts's note) —
     // forward-fill to "no seeds yet" rather than propagating undefined.
     heartseeds: data.heartseeds ?? createHeartseeds(),
+    // Same forward-fill shape as `heartseeds` — an older save predates the
+    // leveling slice entirely, so a missing field means "nobody's leveled yet".
+    leveling: data.leveling ?? createLeveling(),
+    lastLevelUps: [],
     // Not part of SaveData (see the note on GameState.quests) — a loaded game
     // always resumes with a fresh in-session quest log and the town spawn,
     // same as every other transient/screen-local field above.
@@ -302,9 +335,31 @@ export function applySave(g: GameState, data: SaveData): GameState {
   };
 }
 
-/** Express the party tokens into full creatures. */
+/** Express the party tokens into full creatures (BASE stats — token rank/
+ *  plus/gen only, no level growth applied). Prefer `partyCreaturesLeveled`
+ *  for anything battle- or stat-display-facing; this raw form still backs
+ *  callers that only need identity/name/family (e.g. the Cradle picker). */
 export function partyCreatures(g: GameState): Creature[] {
   return g.roster.party.map((t) => creatureFromToken(t));
+}
+
+/** Express the party tokens into full creatures WITH each one's stored level
+ *  applied to `stats` (leveling.ts's `creatureAtLevel`) — what battle
+ *  construction and any stat-facing UI (status page, combatant cards) should
+ *  read instead of the raw `partyCreatures`. */
+export function partyCreaturesLeveled(g: GameState): Creature[] {
+  return g.roster.party.map((t) => creatureAtLevel(creatureFromToken(t), levelOf(g.leveling, t.id)));
+}
+
+/** A single party/collection creature's EFFECTIVE (leveled) stat block —
+ *  the token's base stats (rank/plus/gen already applied) plus this
+ *  creature's stored level growth. Returns the base stats unchanged if
+ *  `tokenId` isn't found (defensive; should not happen for a real roster id). */
+export function effectiveStatsFor(g: GameState, tokenId: string) {
+  const all = [...g.roster.party, ...g.roster.storage];
+  const token = all.find((t) => t.id === tokenId);
+  if (!token) return null;
+  return leveledStats(creatureFromToken(token), levelOf(g.leveling, tokenId));
 }
 
 /** The whole collection (party + storage), expressed. */
@@ -322,11 +377,15 @@ export function makeWild(seed: number): CreatureToken {
   return seedToken(id);
 }
 
-/** Start a wild encounter: 3 party vs 1 wild. Marks the wild as SEEN. */
+/** Start a wild encounter: 3 party vs 1 wild. Marks the wild as SEEN. Both
+ *  sides are built at their EFFECTIVE (leveled) stats: the player's party at
+ *  its stored per-creature level, the wild at its zone-less/legacy tier (see
+ *  `makeWild` — this path predates the zone system and has no chain tier, so
+ *  it levels at the gentlest roamer curve, chain index 0). */
 export function startEncounter(g: GameState): GameState {
   const wildToken = makeWild(g.encounterSeed);
-  const wild = creatureFromToken(wildToken);
-  const battle = createBattle(partyCreatures(g), [wild], g.encounterSeed * 1000 + 7);
+  const wild = creatureAtLevel(creatureFromToken(wildToken), enemyLevelForToken(wildToken));
+  const battle = createBattle(partyCreaturesLeveled(g), [wild], g.encounterSeed * 1000 + 7);
   return {
     ...g,
     screen: "battle",
@@ -377,16 +436,20 @@ export function enterZone(g: GameState, zoneId: string = "meadowmere"): GameStat
 /** Start a battle against a SPECIFIC wild token (the roamer/grass you met).
  *  A Guardian roamer (id === GUARDIAN_ROAMER_ID) is recognized here and
  *  flagged via `guardianBattleWorldId` — same battle system, a distinct
- *  opening log line, and (on victory) the Heartseed award in `stepBattle`. */
+ *  opening log line, and (on victory) the Heartseed award in `stepBattle`.
+ *  Both sides battle at EFFECTIVE (leveled) stats: the party at its stored
+ *  levels, the wild/Guardian at its zone-tier level (`enemyLevelForToken`,
+ *  keyed off the token's own family + WORLD_ORDER chain position). */
 export function startEncounterWith(
   g: GameState,
   wildToken: CreatureToken,
   roamerId: string | null,
 ): GameState {
-  const wild = creatureFromToken(wildToken);
-  const battle = createBattle(partyCreatures(g), [wild], g.encounterSeed * 1000 + 7);
   const zoneId = g.zone?.descriptor.id;
   const isGuardian = roamerId === GUARDIAN_ROAMER_ID && !!zoneId;
+  const wildLevel = enemyLevelForToken(wildToken, isGuardian);
+  const wild = creatureAtLevel(creatureFromToken(wildToken), wildLevel);
+  const battle = createBattle(partyCreaturesLeveled(g), [wild], g.encounterSeed * 1000 + 7);
   const guardianTitle = zoneId ? GUARDIAN_TITLE[zoneId] : undefined;
   return {
     ...g,
@@ -394,6 +457,7 @@ export function startEncounterWith(
     wildToken,
     battle,
     outcome: null,
+    lastLevelUps: [],
     zoneReturnRoamerId: roamerId,
     guardianBattleWorldId: isGuardian ? (worldForZone(zoneId!)?.id ?? null) : null,
     roster: markSeen(g.roster, wildToken),
@@ -471,16 +535,20 @@ export function zoneStep(
  * (`rival.roster.party`, expressed to full `Creature`s — never a fixed team).
  * The kit's `createBattle` already supports uneven N-vs-N, so a rival whose
  * sim hasn't grown past one starter still fields a legal (if lopsided) fight.
+ * Both sides battle at effective (leveled) stats — the rival's own creatures
+ * level via `enemyLevelForToken` off their OWN family's chain tier, same as
+ * any other enemy.
  */
 export function startRivalBattle(g: GameState, rival: RivalState): GameState {
-  const enemyTeam = rival.roster.party.map((t) => creatureFromToken(t));
-  const battle = createBattle(partyCreatures(g), enemyTeam, g.encounterSeed * 1000 + hashSeedFromId(rival.id));
+  const enemyTeam = rival.roster.party.map((t) => creatureAtLevel(creatureFromToken(t), enemyLevelForToken(t)));
+  const battle = createBattle(partyCreaturesLeveled(g), enemyTeam, g.encounterSeed * 1000 + hashSeedFromId(rival.id));
   return {
     ...g,
     screen: "battle",
     wildToken: null,
     battle,
     outcome: null,
+    lastLevelUps: [],
     rivalBattleId: rival.id,
     guardianBattleWorldId: null,
     zoneReturnRoamerId: null,
@@ -535,6 +603,7 @@ export function returnToZone(g: GameState): GameState {
     battle: null,
     wildToken: null,
     outcome: null,
+    lastLevelUps: [],
     zone,
     zoneReturnRoamerId: null,
     rivalBattleId: null,
@@ -646,6 +715,8 @@ export function stepBattle(
   let outcome: Outcome = g.outcome;
   let screen: Screen = g.screen;
   let heartseeds = g.heartseeds;
+  let leveling = g.leveling;
+  let lastLevelUps = g.lastLevelUps;
 
   const scouted = events.find((e) => e.type === "scout" && e.success);
   const fled = events.find((e) => e.type === "flee" && e.success);
@@ -673,6 +744,32 @@ export function stepBattle(
     outcome = "fled";
   }
 
+  // XP on a WIN (win or guardian-win): every PARTICIPATING party member
+  // (the whole roster party, not just the field/active 3 — DQM-style, the
+  // bench shares in the victory too) gains enemyLevel*K_XP summed across the
+  // WHOLE defeated enemy team, in full — not split. `g.battle.enemyTeam`
+  // (the PRE-action battle, still the one this whole fight was fought
+  // against) carries each enemy's token, so their levels are re-derived the
+  // same way they were constructed (`enemyLevelForToken`, Guardian curve iff
+  // this was a flagged Guardian fight).
+  if (won && g.battle) {
+    const isGuardianFight = !!guardianWorldId;
+    const enemyLevels = g.battle.enemyTeam.map((c) => enemyLevelForToken(c.token, isGuardianFight));
+    const totalXp = xpForDefeatedTeam(enemyLevels);
+    const partyIds = g.roster.party.map((t) => t.id);
+    const granted = grantXpToParty(leveling, partyIds, totalXp);
+    leveling = granted.next;
+    lastLevelUps = granted.levelUps;
+    for (const up of granted.levelUps) {
+      const name = g.roster.party.find((t) => t.id === up.tokenId)
+        ? creatureFromToken(g.roster.party.find((t) => t.id === up.tokenId)!).name
+        : up.tokenId;
+      newLog.push(`${name} grew to Lv ${up.to}!`);
+    }
+  } else {
+    lastLevelUps = [];
+  }
+
   if (outcome) screen = "battle"; // stay to show the result banner; player taps Continue
 
   if (outcome === "guardian-win") {
@@ -683,7 +780,18 @@ export function stepBattle(
     }
   }
 
-  let next: GameState = { ...g, battle: state, roster, economy, outcome, screen, heartseeds, log: newLog.slice(-8) };
+  let next: GameState = {
+    ...g,
+    battle: state,
+    roster,
+    economy,
+    outcome,
+    screen,
+    heartseeds,
+    leveling,
+    lastLevelUps,
+    log: newLog.slice(-8),
+  };
 
   // Quest progress: a successful scout advances scout-family/scout-any +
   // grows the Dex tally; a won RIVAL battle advances defeat-rival for that
@@ -710,6 +818,7 @@ export function leaveBattle(g: GameState): GameState {
     outcome: null,
     rivalBattleId: null,
     guardianBattleWorldId: null,
+    lastLevelUps: [],
     encounterSeed: g.encounterSeed + 1,
     log: [],
   };

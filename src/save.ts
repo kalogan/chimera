@@ -22,12 +22,18 @@
  * cleanly — `loadGame` below forward-fills a missing field to `{}` (no seeds)
  * rather than bumping `SAVE_VERSION` and discarding old saves wholesale; the
  * shape is purely additive, so there's nothing to migrate away from.
+ *
+ * `leveling` (the XP/level slice) follows the EXACT same additive pattern:
+ * optional on the wire, forward-filled to `{}` (nobody leveled yet) in
+ * `loadGame` below — a save from before leveling.ts existed still loads
+ * cleanly, its whole roster simply starting back at level 1.
  */
 import type { RosterState } from "game-kit/roster";
 import type { EconomyState } from "game-kit/economy";
 import { createSaveStore } from "game-kit/save";
 import type { PlacedRival } from "./rivals.js";
 import { createHeartseeds, type Heartseeds } from "./worldtree.js";
+import { createLeveling, type LevelingState } from "./leveling.js";
 
 export interface SaveData {
   roster: RosterState;
@@ -38,13 +44,15 @@ export interface SaveData {
   unlockedZones: string[];
   /** Optional so an older (pre-Aldercradle) save blob still validates. */
   heartseeds?: Heartseeds;
+  /** Optional so an older (pre-leveling) save blob still validates. */
+  leveling?: LevelingState;
 }
 
 const SAVE_KEY = "chimera.save";
 // Bump when SaveData's shape changes incompatibly — an old save then loads as
 // "no save" (never crashes on a stale shape) rather than partially applying.
-// `heartseeds` was added ADDITIVELY (optional field, forward-filled below) —
-// no bump needed for it.
+// `heartseeds`/`leveling` were both added ADDITIVELY (optional fields,
+// forward-filled below) — no bump needed for either.
 const SAVE_VERSION = 1;
 
 const store = createSaveStore<SaveData>({ key: SAVE_KEY, version: SAVE_VERSION });
@@ -76,6 +84,7 @@ export function saveGame(g: {
   breedSeed: number;
   unlockedZones: string[];
   heartseeds: Heartseeds;
+  leveling: LevelingState;
 }): void {
   try {
     const data: SaveData = {
@@ -86,6 +95,7 @@ export function saveGame(g: {
       breedSeed: g.breedSeed,
       unlockedZones: g.unlockedZones,
       heartseeds: g.heartseeds,
+      leveling: g.leveling,
     };
     store.save(data);
   } catch {
@@ -101,9 +111,14 @@ export function loadGame(): SaveData | null {
   try {
     const data = store.load();
     if (!isSaveData(data)) return null;
-    // Forward-fill an older save's missing `heartseeds` to "no seeds yet"
-    // rather than leaving it undefined for every downstream reader.
-    return { ...data, heartseeds: data.heartseeds ?? createHeartseeds() };
+    // Forward-fill an older save's missing `heartseeds`/`leveling` to "no
+    // seeds yet" / "nobody's leveled yet" rather than leaving them undefined
+    // for every downstream reader.
+    return {
+      ...data,
+      heartseeds: data.heartseeds ?? createHeartseeds(),
+      leveling: data.leveling ?? createLeveling(),
+    };
   } catch {
     return null;
   }
