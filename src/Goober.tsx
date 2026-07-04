@@ -33,13 +33,17 @@ export function Goober({
   seed = 0,
   facing = 0,
   fainted = false,
+  sizeScale = 1,
 }: {
   spec: GooberSpec;
   position: [number, number, number];
   seed?: number;
   facing?: number;
   fainted?: boolean;
+  /** World-size multiplier — overworld goobers are smaller than battle-stage ones. */
+  sizeScale?: number;
 }) {
+  const base = spec.scale * WORLD * sizeScale;
   const group = useRef<THREE.Group>(null);
   const eyeGroup = useRef<THREE.Group>(null);
 
@@ -71,12 +75,12 @@ export function Goober({
     const ph = (seed % 100) * 0.618;
     if (group.current) {
       if (fainted) {
-        group.current.scale.setScalar(spec.scale * WORLD * 0.9);
+        group.current.scale.setScalar(base * 0.9);
         group.current.position.y = position[1] - 0.5;
         group.current.rotation.set(0, facing, 1.15);
       } else {
         const breathe = 1 + Math.sin(t * 1.6 + ph) * 0.035;
-        group.current.scale.setScalar(spec.scale * WORLD * breathe);
+        group.current.scale.setScalar(base * breathe);
         group.current.position.y = position[1] + Math.sin(t * 1.1 + ph) * 0.08;
         group.current.rotation.set(0, facing + Math.sin(t * 0.5 + ph) * 0.06, 0);
       }
@@ -97,7 +101,7 @@ export function Goober({
     <group
       ref={group}
       position={position}
-      scale={spec.scale * WORLD}
+      scale={base}
       rotation={[0, facing, 0]}
     >
       <primitive object={mc} />

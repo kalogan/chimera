@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { creatureFromToken } from "game-kit/creature";
 import type { BattleState, Combatant } from "game-kit/battle";
+import type { Dir } from "game-kit/world-runtime";
 import { GooberStage, type Placed } from "./GooberStage.js";
+import { ZoneScene } from "./ZoneScene.js";
 import { audio, resumeAudio } from "./audio.js";
 import { playBattleEvents } from "./battle-audio.js";
 import {
@@ -9,7 +11,11 @@ import {
   partyCreatures,
   collectionCreatures,
   dexTotal,
-  startEncounter,
+  enterZone,
+  zoneStep,
+  startEncounterWith,
+  returnToZone,
+  exitZone,
   activeActor,
   defaultTargetId,
   stepBattle,
@@ -36,6 +42,7 @@ export function App() {
   return (
     <div onPointerDown={unlock} style={{ position: "fixed", inset: 0 }}>
       {game.screen === "party" && <PartyScreen game={game} setGame={setGame} />}
+      {game.screen === "zone" && <ZoneScreen game={game} setGame={setGame} />}
       {game.screen === "battle" && <BattleScreen game={game} setGame={setGame} />}
       {game.screen === "cradle" && <CradleScreen game={game} setGame={setGame} />}
       {game.screen === "newborn" && <NewbornScreen game={game} setGame={setGame} />}
@@ -71,13 +78,94 @@ function PartyScreen({ game, setGame }: ScreenProps) {
           <div className="dex">Dex {dexTotal(game)} · Party {game.roster.party.length}/3 · Box {game.roster.storage.length}</div>
         </div>
         <div className="actionbar">
-          <button className="act primary" onClick={() => { audio().playUi("confirm"); setGame(startEncounter(game)); }}>
+          <button className="act primary" onClick={() => { audio().playUi("confirm"); setGame(enterZone(game)); }}>
             Explore the meadow →
           </button>
           <button className="act bond" disabled={game.roster.party.length + game.roster.storage.length < 2}
             onClick={() => { audio().playUi("confirm"); setGame(openCradle(game)); }}>
             The Cradle (breed)
           </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── Overworld: Meadowmere (Wave 2) ─────────────────────────────────────────────
+const KEY_DIR: Record<string, Dir> = {
+  ArrowUp: "up", KeyW: "up",
+  ArrowDown: "down", KeyS: "down",
+  ArrowLeft: "left", KeyA: "left",
+  ArrowRight: "right", KeyD: "right",
+};
+
+function ZoneScreen({ game, setGame }: ScreenProps) {
+  const zone = game.zone;
+  const playerSpec = useMemo(() => partyCreatures(game)[0]?.gooberSpec, [game]);
+  const busy = useRef(false); // locked while an encounter/portal transition plays
+  const lastStep = useRef(0);
+
+  useEffect(() => {
+    audio().startAmbient("meadowmere-verdant");
+    return () => audio().stopAmbient();
+  }, []);
+
+  // One step per press, rate-limited so a held key can't outrun the hop.
+  const onStep = (dir: Dir) => {
+    if (busy.current) return;
+    const now = performance.now();
+    if (now - lastStep.current < 135) return;
+    lastStep.current = now;
+
+    const { game: g2, events, pending } = zoneStep(game, dir);
+    for (const ev of events) {
+      if (ev.type === "moved") audio().playUi("select");
+      else if (ev.type === "blocked") audio().playUi("back");
+    }
+    setGame(g2);
+
+    if (pending?.kind === "encounter") {
+      busy.current = true;
+      audio().playCry(creatureFromToken(pending.token).crySpec);
+      window.setTimeout(() => setGame(startEncounterWith(g2, pending.token, pending.roamerId)), 340);
+    } else if (pending?.kind === "portal") {
+      busy.current = true;
+      audio().playUi("confirm");
+      window.setTimeout(() => setGame(exitZone(g2)), 260);
+    }
+  };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const dir = KEY_DIR[e.code];
+      if (dir) { e.preventDefault(); onStep(dir); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game]);
+
+  if (!zone || !playerSpec) return null;
+
+  return (
+    <>
+      <ZoneScene zone={zone} playerSpec={playerSpec} />
+      <div className="overlay">
+        <div className="banner">
+          <div>
+            <div className="title">Meadowmere</div>
+            <div className="subtitle">Wild goobers roam — walk into one to meet it.</div>
+          </div>
+          <div className="dex">Dex {dexTotal(game)} · Party {game.roster.party.length}/3</div>
+        </div>
+        <div className="hint" style={{ position: "absolute", bottom: 116, left: 0, right: 0, textAlign: "center" }}>
+          ↑↓←→ / WASD to walk · reach the golden ring to head home
+        </div>
+        <div className="dpad">
+          <button className="pad up" onClick={() => onStep("up")}>▲</button>
+          <button className="pad left" onClick={() => onStep("left")}>◀</button>
+          <button className="pad right" onClick={() => onStep("right")}>▶</button>
+          <button className="pad down" onClick={() => onStep("down")}>▼</button>
         </div>
       </div>
     </>
@@ -149,7 +237,9 @@ function BattleScreen({ game, setGame }: ScreenProps) {
         </div>
         <div className="actionbar">
           {game.outcome ? (
-            <button className="act primary" onClick={() => setGame(leaveBattle(game))}>Return to the Sanctuary →</button>
+            <button className="act primary" onClick={() => setGame(game.zone ? returnToZone(game) : leaveBattle(game))}>
+              {game.zone ? "Back to the meadow →" : "Return to the Sanctuary →"}
+            </button>
           ) : actor && target ? (
             <>
               <button className="act primary" onClick={() => doAction({ type: "attack", targetId: target })}>Attack</button>

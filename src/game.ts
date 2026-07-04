@@ -23,8 +23,17 @@ import {
   type BattleEvent,
   type Combatant,
 } from "game-kit/battle";
+import {
+  createZone,
+  stepZone,
+  resumeAfterEncounter,
+  type ZoneState,
+  type ZoneEvent,
+  type Dir,
+} from "game-kit/world-runtime";
+import { MEADOWMERE } from "./zone.js";
 
-export type Screen = "party" | "battle" | "cradle" | "newborn";
+export type Screen = "party" | "zone" | "battle" | "cradle" | "newborn";
 export type Outcome = "win" | "lose" | "scouted" | "fled" | null;
 
 export interface GameState {
@@ -39,6 +48,11 @@ export interface GameState {
   newborn: Creature | null;
   lastBreed: BreedResult | null;
   breedSeed: number;
+  // Overworld (Wave 2). `zone` is the walkable Meadowmere state; when a battle is
+  // entered FROM the zone, `zoneReturnRoamerId` remembers which roamer to consume
+  // on the way back (null for a tall-grass encounter).
+  zone: ZoneState | null;
+  zoneReturnRoamerId: string | null;
 }
 
 // Three balanced rank-C starter companions (scanned for viable, non-godlike stats).
@@ -62,6 +76,8 @@ export function newGame(): GameState {
     newborn: null,
     lastBreed: null,
     breedSeed: 1,
+    zone: null,
+    zoneReturnRoamerId: null,
   };
 }
 
@@ -99,6 +115,90 @@ export function startEncounter(g: GameState): GameState {
     roster: markSeen(g.roster, wildToken),
     log: [`A wild ${wild.name} (${wild.family} · rank ${wild.rank}) appears!`],
   };
+}
+
+// ── Overworld (Wave 2): the walkable Meadowmere ────────────────────────────────
+
+/** Leave the Sanctuary and walk into Meadowmere (a fresh, seeded zone). */
+export function enterZone(g: GameState): GameState {
+  return {
+    ...g,
+    screen: "zone",
+    zone: createZone(MEADOWMERE, g.encounterSeed * 101 + 7),
+    zoneReturnRoamerId: null,
+  };
+}
+
+/** Start a battle against a SPECIFIC wild token (the roamer/grass you met). */
+export function startEncounterWith(
+  g: GameState,
+  wildToken: CreatureToken,
+  roamerId: string | null,
+): GameState {
+  const wild = creatureFromToken(wildToken);
+  const battle = createBattle(partyCreatures(g), [wild], g.encounterSeed * 1000 + 7);
+  return {
+    ...g,
+    screen: "battle",
+    wildToken,
+    battle,
+    outcome: null,
+    zoneReturnRoamerId: roamerId,
+    roster: markSeen(g.roster, wildToken),
+    log: [`A wild ${wild.name} (${wild.family} · rank ${wild.rank}) appears!`],
+  };
+}
+
+/** What a zone step wants the view layer to do next (after the hop plays). */
+export type ZonePending =
+  | { kind: "encounter"; token: CreatureToken; roamerId: string | null }
+  | { kind: "portal"; to: string }
+  | null;
+
+/**
+ * Advance the overworld one grid step. Returns the zone-updated game (screen
+ * stays "zone" so the hop animates), the ordered ZoneEvent stream (for audio),
+ * and a `pending` transition the view triggers after a short beat.
+ */
+export function zoneStep(
+  g: GameState,
+  dir: Dir,
+): { game: GameState; events: ZoneEvent[]; pending: ZonePending } {
+  if (g.screen !== "zone" || !g.zone) return { game: g, events: [], pending: null };
+  const { state, events } = stepZone(g.zone, dir);
+  const game = { ...g, zone: state };
+
+  let pending: ZonePending = null;
+  for (const ev of events) {
+    if (ev.type === "encounter") {
+      pending = { kind: "encounter", token: ev.token, roamerId: ev.roamerId ?? null };
+    } else if (ev.type === "portal") {
+      pending = { kind: "portal", to: ev.to };
+    }
+  }
+  return { game, events, pending };
+}
+
+/** After a zone battle resolves, return to Meadowmere (consuming that roamer). */
+export function returnToZone(g: GameState): GameState {
+  const zone = g.zone
+    ? resumeAfterEncounter(g.zone, g.zoneReturnRoamerId ?? undefined)
+    : g.zone;
+  return {
+    ...g,
+    screen: "zone",
+    battle: null,
+    wildToken: null,
+    outcome: null,
+    zone,
+    zoneReturnRoamerId: null,
+    encounterSeed: g.encounterSeed + 1,
+  };
+}
+
+/** Step out of Meadowmere back to the Sanctuary hub (via the portal). */
+export function exitZone(g: GameState): GameState {
+  return { ...g, screen: "party", zone: null, zoneReturnRoamerId: null, log: [] };
 }
 
 /** The combatant whose turn it is (null if the battle is over / not choosing). */

@@ -81,3 +81,20 @@ button.act.bond { border-color: var(--bond); }
 .log div:last-child { font-weight: 700; }
 .pick { outline: 3px solid var(--warm); border-radius: 12px; }
 .hint { font-size: 13px; opacity: 0.75; margin-top: 6px; }
+
+/* Overworld touch d-pad (Meadowmere) — bottom-right cluster, thumb-reachable */
+.dpad {
+  position: absolute; right: 22px; bottom: 26px;
+  width: 150px; height: 150px;
+}
+.dpad .pad {
+  position: absolute; width: 50px; height: 50px; border: none; cursor: pointer;
+  background: var(--panel); border-radius: 12px; box-shadow: var(--shadow);
+  font-size: 18px; color: var(--warm-deep); display: flex; align-items: center; justify-content: center;
+  user-select: none; -webkit-user-select: none; touch-action: manipulation;
+}
+.dpad .pad:active { background: var(--parchment-2); transform: scale(0.94); }
+.dpad .up    { left: 50px; top: 0; }
+.dpad .down  { left: 50px; bottom: 0; }
+.dpad .left  { left: 0; top: 50px; }
+.dpad .right { right: 0; top: 50px; }
