@@ -10,15 +10,24 @@
  * `SaveData` is the PERSISTENT subset of `GameState`: roster (party/storage/
  * dex), economy, rivals (their full off-screen sim state — so a rival's
  * roster/dex/history survives a reload too), the encounter/breed rng seeds,
- * and the unlocked-zones list. Explicitly EXCLUDED (transient, screen-local):
- * `screen`, `battle`, `wildToken`, `log`, `outcome`, `zone`,
- * `zoneReturnRoamerId`, `cradlePick`, `newborn`, `lastBreed`, `rivalBattleId`
- * — a load always resumes at the Sanctuary, never mid-battle or mid-zone.
+ * the unlocked-zones list, and (Aldercradle) `heartseeds` — the recovered
+ * Heartseed record (world id -> true) that drives the world-tree's bloom
+ * stage. Explicitly EXCLUDED (transient, screen-local): `screen`, `battle`,
+ * `wildToken`, `log`, `outcome`, `zone`, `zoneReturnRoamerId`, `cradlePick`,
+ * `newborn`, `lastBreed`, `rivalBattleId`, `guardianBattleWorldId` — a load
+ * always resumes at the Town, never mid-battle or mid-zone.
+ *
+ * `heartseeds` is OPTIONAL on the wire (`heartseeds?:`) so an OLDER save blob
+ * (persisted before this field existed) still passes `isSaveData` and loads
+ * cleanly — `loadGame` below forward-fills a missing field to `{}` (no seeds)
+ * rather than bumping `SAVE_VERSION` and discarding old saves wholesale; the
+ * shape is purely additive, so there's nothing to migrate away from.
  */
 import type { RosterState } from "game-kit/roster";
 import type { EconomyState } from "game-kit/economy";
 import { createSaveStore } from "game-kit/save";
 import type { PlacedRival } from "./rivals.js";
+import { createHeartseeds, type Heartseeds } from "./worldtree.js";
 
 export interface SaveData {
   roster: RosterState;
@@ -27,11 +36,15 @@ export interface SaveData {
   encounterSeed: number;
   breedSeed: number;
   unlockedZones: string[];
+  /** Optional so an older (pre-Aldercradle) save blob still validates. */
+  heartseeds?: Heartseeds;
 }
 
 const SAVE_KEY = "chimera.save";
 // Bump when SaveData's shape changes incompatibly — an old save then loads as
 // "no save" (never crashes on a stale shape) rather than partially applying.
+// `heartseeds` was added ADDITIVELY (optional field, forward-filled below) —
+// no bump needed for it.
 const SAVE_VERSION = 1;
 
 const store = createSaveStore<SaveData>({ key: SAVE_KEY, version: SAVE_VERSION });
@@ -50,6 +63,7 @@ function isSaveData(data: unknown): data is SaveData {
     typeof d.encounterSeed === "number" &&
     typeof d.breedSeed === "number" &&
     Array.isArray(d.unlockedZones)
+    // `heartseeds` is intentionally NOT required here — see the module note.
   );
 }
 
@@ -61,6 +75,7 @@ export function saveGame(g: {
   encounterSeed: number;
   breedSeed: number;
   unlockedZones: string[];
+  heartseeds: Heartseeds;
 }): void {
   try {
     const data: SaveData = {
@@ -70,6 +85,7 @@ export function saveGame(g: {
       encounterSeed: g.encounterSeed,
       breedSeed: g.breedSeed,
       unlockedZones: g.unlockedZones,
+      heartseeds: g.heartseeds,
     };
     store.save(data);
   } catch {
@@ -85,7 +101,9 @@ export function loadGame(): SaveData | null {
   try {
     const data = store.load();
     if (!isSaveData(data)) return null;
-    return data;
+    // Forward-fill an older save's missing `heartseeds` to "no seeds yet"
+    // rather than leaving it undefined for every downstream reader.
+    return { ...data, heartseeds: data.heartseeds ?? createHeartseeds() };
   } catch {
     return null;
   }
