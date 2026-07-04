@@ -5,16 +5,21 @@
  * source of truth for the legal option space — so the comparison is always over
  * the identical, current content (add a zone/creature and both brains see it).
  *
- * Grok here uses a MOCK provider (picks a legal goal by a different priority, with
- * flavor text) so the difference is visible with no key. The firewall still guards
- * it — an illegal pick degrades to the utility decision (source badge shows it).
- * Live Grok needs a server proxy to hold XAI_API_KEY (a browser can't); swap
- * `mockGrok` for `createGrokProvider` behind a proxy when that lands.
+ * Grok here has TWO sources, toggled live in the inspector:
+ *   - mock: picks a legal goal by a different priority, with flavor text — the
+ *     difference from utility is visible with no key.
+ *   - live: `createProxyGrokProvider()` (src/rival-grok.ts) calls the REAL Grok
+ *     through the `/api/grok` server-side proxy (dev: the Vite plugin in
+ *     vite.config.ts; prod: api/grok.ts). No key in the browser, ever.
+ * The firewall still guards both — an illegal pick, a thrown error, or a missing
+ * XAI_API_KEY (proxy 503s) all degrade to the utility decision, and the source
+ * badge shows it honestly (`GROK→FELL BACK`).
  */
 import { useEffect, useMemo, useState } from "react";
 import { seedToken } from "game-kit/creature";
 import { dexCount } from "game-kit/roster";
 import type { ReasoningProvider } from "game-kit/npc";
+import { createProxyGrokProvider } from "./rival-grok";
 import {
   createRival,
   enumerateOptions,
@@ -64,7 +69,12 @@ const mockGrok: ReasoningProvider = {
     return JSON.stringify({ goal, why: MOCK_WHY[goal] });
   },
 };
-const grokBrain: RivalBrain = createGrokRivalBrain(mockGrok, { label: "Grok (mock)" });
+const mockGrokBrain: RivalBrain = createGrokRivalBrain(mockGrok, { label: "Grok (mock)" });
+// Built once (not per-render) — the provider itself is stateless (each call just
+// POSTs to the proxy), so there's nothing to invalidate across renders.
+const liveGrokBrain: RivalBrain = createGrokRivalBrain(createProxyGrokProvider(), { label: "Grok (live)" });
+
+type GrokSource = "mock" | "live";
 
 function makeRivals(): RivalState[] {
   return [
@@ -113,13 +123,18 @@ export function RivalInspector() {
   const [rivals, setRivals] = useState<RivalState[]>(() => makeRivals());
   const [sel, setSel] = useState(0);
   const [driver, setDriver] = useState<"utility" | "grok">("utility");
+  // mock = the deterministic stand-in (no key needed); live = the real Grok through
+  // the /api/grok server-side proxy. Defaults to mock — the safe, always-on choice.
+  const [grokSource, setGrokSource] = useState<GrokSource>("mock");
   const [utilTrace, setUtilTrace] = useState<DecisionTrace | null>(null);
   const [grokTrace, setGrokTrace] = useState<DecisionTrace | null>(null);
 
   const rival = rivals[sel]!;
   const optionCount = useMemo(() => enumerateOptions(rival, CTX).length, [rival]);
+  const grokBrain = grokSource === "live" ? liveGrokBrain : mockGrokBrain;
 
-  // Recompute BOTH brains' decisions on the current state whenever it changes.
+  // Recompute BOTH brains' decisions on the current state whenever it (or the Grok
+  // source) changes.
   useEffect(() => {
     let live = true;
     setUtilTrace(null);
@@ -128,7 +143,7 @@ export function RivalInspector() {
       ([u, g]) => { if (live) { setUtilTrace(u); setGrokTrace(g); } },
     );
     return () => { live = false; };
-  }, [rival]);
+  }, [rival, grokBrain]);
 
   const step = async (n: number) => {
     let r = rival;
@@ -145,6 +160,21 @@ export function RivalInspector() {
       <div className="ins-top">
         <div className="ins-title">RIVAL BRAIN INSPECTOR</div>
         <div className="hint">Same state, both brains, one option space ({optionCount} legal now).</div>
+        <div className="ins-controls">
+          <span className="hint">Grok:</span>
+          <button
+            className={`ins-drv ${grokSource === "mock" ? "active" : ""}`}
+            onClick={() => setGrokSource("mock")}
+          >
+            mock
+          </button>
+          <button
+            className={`ins-drv ${grokSource === "live" ? "active" : ""}`}
+            onClick={() => setGrokSource("live")}
+          >
+            live
+          </button>
+        </div>
       </div>
 
       <div className="ins-tabs">
