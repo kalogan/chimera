@@ -381,7 +381,9 @@ export function MarketStall({ tint = TOWN_PROPS_PALETTE.warmDeep, position, rota
 // ─────────────────────────────────────────────────────────────────────────
 
 const TREE_BARK_WINTER = "#8f8578"; // greyed, wistful winter bark
+const TREE_BARK_WINTER_B = "#7d7566"; // second winter bark tone (subtle variation)
 const TREE_BARK_WARM = "#7a5a38"; // warm lived-in bark once budding starts
+const TREE_BARK_WARM_B = "#6a4c30"; // second warm bark tone (subtle variation)
 const TREE_LEAF_WITHERED = "#a89a6e"; // sparse dry clinging leaves at stage 0
 const TREE_LEAF_BUD = "#8fb35f"; // fresh budding green
 const TREE_LEAF_LUSH = "#4f9a4c"; // full lush green
@@ -408,6 +410,7 @@ interface TreeStage {
    *  clusters are present (sparse→full), not just their tint. */
   bareness: number;
   trunkColor: string;
+  trunkColorB: string;
   /** Underside/inner shadow tone for this stage's foliage family. */
   underColor: string;
   /** Top-lit brighter tone for this stage's foliage family. */
@@ -424,27 +427,27 @@ interface TreeStage {
 
 /**
  * A believable seasonal arc: 0 = bare wistful winter (grey bark, a scatter of
- * dry clinging leaves, no full crown), ~0.5 = budding/green (warming bark,
- * about half the crown filled in fresh green), ~0.8 = a full lush green
- * crown, 1.0 = golden-blossomed (warm gold canopy + blossom dots + glow +
+ * dry clinging leaves, no full crown), ~0.4 budding green tips, ~0.7 a full
+ * lush crown, 1.0 = golden-blossomed (warm gold canopy + blossom dots + glow +
  * light + drifting motes). Every value in between eases smoothly.
  */
 function stageFor(t01: number): TreeStage {
   const t = Math.max(0, Math.min(1, t01));
   const trunkColor = lerpColor(TREE_BARK_WINTER, TREE_BARK_WARM, Math.min(1, t / 0.5));
+  const trunkColorB = lerpColor(TREE_BARK_WINTER_B, TREE_BARK_WARM_B, Math.min(1, t / 0.5));
   let midColor: string, topColor: string, underColor: string;
-  if (t < 0.5) {
-    const lt = t / 0.5;
+  if (t < 0.4) {
+    const lt = t / 0.4;
     midColor = lerpColor(TREE_LEAF_WITHERED, TREE_LEAF_BUD, lt);
     topColor = midColor;
     underColor = lerpColor("#6b6248", "#3f6a3f", lt);
-  } else if (t < 0.85) {
-    const lt = (t - 0.5) / 0.35;
+  } else if (t < 0.7) {
+    const lt = (t - 0.4) / 0.3;
     midColor = lerpColor(TREE_LEAF_BUD, TREE_LEAF_LUSH, lt);
     topColor = lerpColor(TREE_LEAF_BUD, TREE_LEAF_LUSH_LIGHT, lt);
     underColor = lerpColor("#3f6a3f", TREE_UNDERSIDE_DARK, lt);
   } else {
-    const lt = (t - 0.85) / 0.15;
+    const lt = (t - 0.7) / 0.3;
     midColor = lerpColor(TREE_LEAF_LUSH, TREE_LEAF_GOLD, lt);
     topColor = lerpColor(TREE_LEAF_LUSH_LIGHT, TREE_LEAF_GOLD_LIGHT, lt);
     underColor = lerpColor(TREE_UNDERSIDE_DARK, "#7a5a24", lt);
@@ -452,55 +455,219 @@ function stageFor(t01: number): TreeStage {
   return {
     bareness: 1 - t,
     trunkColor,
+    trunkColorB,
     underColor,
     topColor,
     midColor,
-    canopyFill: 0.4 + t * 0.6,
-    canopyScale: 0.62 + t * 0.5,
+    canopyFill: 0.32 + t * 0.68,
+    canopyScale: 0.6 + t * 0.5,
     glowOpacity: t > 0.85 ? ((t - 0.85) / 0.15) * 0.5 : 0,
     lightIntensity: t > 0.85 ? ((t - 0.85) / 0.15) * 1.3 : 0,
-    blossoms: t > 0.92,
+    blossoms: t > 0.88,
     motes: t > 0.95,
   };
 }
 
-// Canopy foliage clusters — one FIXED layout (never regenerated; `stageFor`
-// only recomputes color/scale/fill), grouped in three "tones" per cluster:
-// [x, y, z, baseRadius, tone] where tone 0 = underside/shadow, 1 = mid, 2 =
-// top-lit highlight. Positioned around the branch tips (see BRANCH_DIRS)
-// plus a couple of filler balls to round out the silhouette, so the crown
-// reads as one full, layered, rounded mass rather than a single blob.
-const CANOPY_CLUSTERS: Array<[number, number, number, number, 0 | 1 | 2]> = [
-  // Core mass, low + wide (partly shadowed underside).
-  [0, -0.05, 0, 1.05, 0],
-  [0, 0.18, 0, 1.0, 1],
-  // Branch-tip clusters (reaching up/out to match the 4 split limbs).
-  [0.68, 0.55, 0.22, 0.72, 1],
-  [0.78, 0.62, 0.24, 0.5, 2],
-  [-0.62, 0.5, -0.3, 0.7, 1],
-  [-0.72, 0.58, -0.34, 0.48, 2],
-  [0.2, 0.78, -0.55, 0.62, 1],
-  [0.24, 0.86, -0.62, 0.42, 2],
-  [-0.28, 0.7, 0.58, 0.66, 1],
-  [-0.3, 0.78, 0.66, 0.44, 2],
-  // Fillers rounding out the silhouette + a top crown cap.
-  [0.15, 0.98, 0.05, 0.5, 2],
-  [-0.1, 0.35, 0.5, 0.55, 0],
-  [0.35, 0.28, -0.42, 0.5, 0],
-  [-0.45, 0.2, 0.15, 0.52, 0],
-];
+// ─────────────────────────────────────────────────────────────────────────
+// PROCEDURAL BRANCH STRUCTURE — a small deterministic (seeded) builder run
+// ONCE via useMemo (never per-frame). Trunk splits into PRIMARY limbs, each
+// of which forks again into SECONDARY branches (2 branching levels), each
+// leg tapering and naturally spreading outward/upward. Produces a flat list
+// of cylinder segment descriptors (world-space-ish local transforms) plus
+// the list of branch-TIP points the canopy clusters get generated around,
+// so canopy density/position always matches the actual branch structure
+// rather than a hand-authored table that could drift from it.
+// ─────────────────────────────────────────────────────────────────────────
 
-// The 4 branch limbs split from the trunk — [angle around Y, tilt-up, length].
-// Angles chosen to roughly aim at the CANOPY_CLUSTERS tip positions above.
-const BRANCH_DIRS: Array<[number, number, number]> = [
-  [0.32, 0.55, 0.95],
-  [-2.75, 0.5, 0.9],
-  [1.9, 0.7, 0.85],
-  [-1.35, 0.6, 0.88],
-];
+interface BranchSeg {
+  /** Midpoint position (cylinder meshes are positioned+rotated to span
+   *  base->tip, matching the existing trunk/branch convention below). */
+  pos: [number, number, number];
+  rot: [number, number, number];
+  length: number;
+  radiusBase: number;
+  radiusTip: number;
+  /** Alternates true/false per-branch for the subtle bark tint variation. */
+  altBark: boolean;
+}
 
-// Flared root ridges spreading from the trunk base onto the mound.
-const ROOT_ANGLES = [0.4, 1.7, 3.0, 4.3, 5.4];
+interface BranchTip {
+  pos: [number, number, number];
+  /** Outward direction (normalized-ish) — canopy clusters bias further out
+   *  along this direction so foliage reaches past its branch tip. */
+  dir: [number, number, number];
+  /** Primary limbs get a bigger canopy mass than secondary twigs. */
+  weight: number;
+}
+
+// Small deterministic PRNG (mulberry32-style) so the branch layout is a
+// FIXED shape every mount — no per-frame or per-render regeneration, and
+// no dependency on Math.random() (keeps the silhouette stable/reviewable).
+function seededRand(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let x = Math.imul(s ^ (s >>> 15), 1 | s);
+    x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x;
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Builds one tapered limb segment (trunk or branch) between a base point
+ *  and a computed tip point given a Y-angle + upward tilt + length, in the
+ *  same position/rotation convention the original single-level tree used
+ *  (cylinder's local +Y axis rotated to point from base to tip). */
+function makeLimb(
+  base: [number, number, number],
+  angleY: number,
+  tilt: number,
+  length: number,
+  radiusBase: number,
+  radiusTip: number,
+  altBark: boolean,
+): { seg: BranchSeg; tip: [number, number, number]; dir: [number, number, number] } {
+  const dir: [number, number, number] = [
+    Math.cos(angleY) * Math.cos(tilt),
+    Math.sin(tilt),
+    Math.sin(angleY) * Math.cos(tilt),
+  ];
+  const tip: [number, number, number] = [
+    base[0] + dir[0] * length,
+    base[1] + dir[1] * length,
+    base[2] + dir[2] * length,
+  ];
+  const mid: [number, number, number] = [
+    (base[0] + tip[0]) / 2,
+    (base[1] + tip[1]) / 2,
+    (base[2] + tip[2]) / 2,
+  ];
+  return {
+    seg: {
+      pos: mid,
+      rot: [Math.cos(angleY) * tilt, angleY, Math.PI / 2 - tilt],
+      length,
+      radiusBase,
+      radiusTip,
+      altBark,
+    },
+    tip,
+    dir,
+  };
+}
+
+const PRIMARY_COUNT = 3;
+const SECONDARY_PER_PRIMARY = 2;
+const TRUNK_SPLIT_Y = 1.4; // matches original trunk-top height
+
+/** Builds the full 2-level branch structure ONCE (pure function of nothing
+ *  but constants — called from a top-level `useMemo` with an empty dep
+ *  array so it truly never rebuilds). Returns the trunk+limb segments to
+ *  render as tapered cylinders plus the branch-tip list the canopy uses. */
+function buildBranchStructure(): { segs: BranchSeg[]; tips: BranchTip[] } {
+  const rand = seededRand(1337);
+  const segs: BranchSeg[] = [];
+  const tips: BranchTip[] = [];
+  const trunkTop: [number, number, number] = [0, TRUNK_SPLIT_Y, 0];
+
+  for (let p = 0; p < PRIMARY_COUNT; p++) {
+    // Spread the primary limbs roughly evenly around the trunk with a bit
+    // of jitter so it doesn't look like a perfect radial fan.
+    const baseAngle = (p / PRIMARY_COUNT) * Math.PI * 2 + (rand() - 0.5) * 0.5;
+    const tilt = 0.5 + rand() * 0.28;
+    const len = 0.85 + rand() * 0.3;
+    const { seg, tip, dir } = makeLimb(trunkTop, baseAngle, tilt, len, 0.17, 0.09, p % 2 === 0);
+    segs.push(seg);
+
+    // Each primary forks into SECONDARY_PER_PRIMARY secondary branches,
+    // splaying outward from the primary's own direction (not the trunk's),
+    // so the crown reads as a real forking structure, not spokes.
+    for (let sIdx = 0; sIdx < SECONDARY_PER_PRIMARY; sIdx++) {
+      const splay = (sIdx - (SECONDARY_PER_PRIMARY - 1) / 2) * 0.85 + (rand() - 0.5) * 0.3;
+      const subAngle = baseAngle + splay;
+      const subTilt = Math.min(1.15, tilt + 0.22 + rand() * 0.25);
+      const subLen = 0.55 + rand() * 0.28;
+      const r = makeLimb(tip, subAngle, subTilt, subLen, 0.09, 0.035, (p + sIdx) % 2 === 0);
+      segs.push(r.seg);
+      tips.push({ pos: r.tip, dir: r.dir, weight: 0.85 + rand() * 0.3 });
+    }
+    // The primary limb tip itself also gets a (smaller) canopy mass so the
+    // crown has an inner/lower layer, not just the outermost twig tips.
+    tips.push({ pos: tip, dir, weight: 0.55 });
+  }
+  return { segs, tips };
+}
+
+/** Builds the canopy cluster layout from the branch tips ONCE, in the same
+ *  deterministic-seed spirit as the branch builder. Each tip gets 2-3
+ *  overlapping foliage balls of varied size/tone (biased further outward
+ *  along the tip's own direction) plus a handful of low "core mass" and
+ *  silhouette-filling clusters, so the crown reads as one full, irregular,
+ *  layered mass rather than neat balls sitting exactly on each twig.
+ *
+ *  IMPORTANT: `tips` are in tree-root-local space (Y measured from the
+ *  ground), but the rendered canopy sits inside a sway `<group>` pivoted at
+ *  `[0, TRUNK_SPLIT_Y, 0]` (see AldercradleTreeProp) so the crown leans
+ *  around a sensible point. Every coordinate here is therefore emitted
+ *  relative to that same pivot (`pivotY` subtracted from tip.pos[1]) so the
+ *  foliage actually lands ON the branch tips instead of floating high above
+ *  them once the group's own Y offset is added back at render time. */
+function buildCanopyClusters(tips: BranchTip[], pivotY: number): Array<[number, number, number, number, 0 | 1 | 2]> {
+  const rand = seededRand(9001);
+  const out: Array<[number, number, number, number, 0 | 1 | 2]> = [];
+
+  // Low, wide core mass (partly shadowed underside + a mid layer), anchors
+  // the silhouette so it never looks like isolated balls floating apart.
+  out.push([0, -0.1, 0, 1.05, 0]);
+  out.push([0.05, 0.15, 0.05, 0.95, 1]);
+  out.push([-0.08, 0.05, -0.1, 0.8, 0]);
+
+  for (const t of tips) {
+    const reach = 0.28 + rand() * 0.18;
+    const cx = t.pos[0] + t.dir[0] * reach;
+    const cy = t.pos[1] - pivotY + t.dir[1] * reach * 0.7 + 0.05;
+    const cz = t.pos[2] + t.dir[2] * reach;
+    const baseR = (0.42 + rand() * 0.22) * t.weight;
+    // Mid-tone body ball at the tip.
+    out.push([cx, cy, cz, baseR, 1]);
+    // A slightly smaller, higher/outer top-lit highlight ball offset from
+    // the mid ball so the two overlap rather than coincide exactly.
+    out.push([
+      cx + t.dir[0] * 0.16,
+      cy + 0.14 + rand() * 0.06,
+      cz + t.dir[2] * 0.16,
+      baseR * 0.66,
+      2,
+    ]);
+    // A smaller shadow-toned ball tucked slightly under/inward for depth —
+    // only on about half the tips (perf: keeps the total cluster count in
+    // budget while still reading as layered/irregular, not per-tip-uniform).
+    if (rand() > 0.5) {
+      out.push([
+        cx - t.dir[0] * 0.12,
+        cy - 0.12,
+        cz - t.dir[2] * 0.12,
+        baseR * 0.58,
+        0,
+      ]);
+    }
+  }
+
+  // A few extra fillers so the silhouette reads full/round rather than
+  // clumpy-with-gaps, and a top crown cap.
+  const fillers: Array<[number, number, number, number, 0 | 1 | 2]> = [
+    [0.18, 1.15, 0.08, 0.46, 2],
+    [-0.15, 0.42, 0.62, 0.5, 0],
+    [0.4, 0.32, -0.5, 0.48, 0],
+  ];
+  out.push(...fillers);
+
+  return out;
+}
+
+// Flared root ridges spreading from the trunk base onto the mound — a
+// fuller ring (6) than a stumpy tree would need, so the base reads as
+// genuinely ancient/buttressed from the angled top-down camera.
+const ROOT_ANGLES = [0.2, 1.25, 2.15, 3.05, 4.05, 5.1];
 
 export interface AldercradleTreeProps extends PropTransform {
   /** Bloom progress 0..1 — bare/withered/grey at 0, full green mid-way,
@@ -511,37 +678,66 @@ export interface AldercradleTreeProps extends PropTransform {
 
 /**
  * The Aldercradle world-tree: a real stylized Tree of Life. A tapered trunk
- * splits into four branches reaching upward, rooted by a flared base of root
- * ridges; a lush, layered, OPAQUE crown of overlapping foliage clusters (a
- * shadowed underside tone, a mid tone, and a brighter top-lit tone) forms a
- * full rounded silhouette. `stage` (0..1) drives a believable seasonal arc:
- * bare wistful winter -> budding green -> full lush crown -> golden blossom
- * + glow + light + drifting motes. Geometry is a FIXED layout built once
- * (`useMemo` keyed only on `stage` recomputes color/scale/fill, never
- * geometry); materials are shared via the module-level `toonOf`/`basicOf`
- * caches. A single cheap shared sway (gated on `getReducedMotion()`) is the
- * only per-frame cost, appropriate for the one hero tree on screen.
+ * SPLITS into `PRIMARY_COUNT` primary limbs, which fork AGAIN into
+ * `SECONDARY_PER_PRIMARY` secondary branches each (two branching levels,
+ * built once by `buildBranchStructure`) — naturally spread, not a single
+ * cylinder with a ball on top. It's rooted by a flared buttress-root base
+ * (six ridges) spreading onto a mound. A rich, layered, OPAQUE crown of MANY
+ * overlapping foliage clusters (`buildCanopyClusters`, generated from the
+ * actual branch tips so canopy mass always matches the branch shape) forms a
+ * full, irregular, organic silhouette — a shadowed underside tone, a mid
+ * tone, and a brighter top-lit tone give it depth. `stage` (0..1) drives a
+ * believable seasonal arc: bare wistful winter (visible branch skeleton +
+ * a few dry clinging leaves, grey bark) -> ~0.4 budding green tips -> ~0.7 a
+ * full lush crown -> 1.0 golden-blossomed (warm gold foliage + blossom dots
+ * + glow + light + drifting motes). Geometry is a FIXED layout built ONCE
+ * (`useMemo` with an empty dep array) — `stage` only ever recomputes
+ * color/scale/fill via `stageFor`, never geometry. Materials are shared via
+ * the module-level `toonOf`/`basicOf` caches (a handful of distinct colors
+ * total, reused across every mesh). A single cheap shared canopy sway
+ * (gated on `getReducedMotion()`) is the only per-frame cost, appropriate
+ * for the one hero tree on screen (~59 meshes total at full bloom, within
+ * the ~60-mesh mobile budget).
  */
 export function AldercradleTreeProp({ stage = 1, position, rotation, scale }: AldercradleTreeProps) {
   const g = useGroupProps({ position, rotation, scale });
   const s = useMemo(() => stageFor(stage), [stage]);
-  const canopyY = 1.55;
+  // The canopy sway group's pivot — the trunk split point, so leaning
+  // rotates the whole crown around a sensible anchor (see buildCanopyClusters
+  // doc comment for why canopy coords are emitted relative to this same Y).
+  const canopyY = TRUNK_SPLIT_Y;
+
+  // The branch skeleton + the canopy layout derived from it are built ONCE
+  // ever (empty dep array) — nothing here depends on `stage`.
+  const { segs: branchSegs, tips: branchTips } = useMemo(() => buildBranchStructure(), []);
+  const canopyClusters = useMemo(() => buildCanopyClusters(branchTips, canopyY), [branchTips, canopyY]);
 
   const trunkMat = useMemo(() => toonOf(s.trunkColor), [s.trunkColor]);
+  const trunkMatB = useMemo(() => toonOf(s.trunkColorB), [s.trunkColorB]);
   const underMat = useMemo(() => toonOf(s.underColor), [s.underColor]);
   const midMat = useMemo(() => toonOf(s.midColor), [s.midColor]);
   const topMat = useMemo(() => toonOf(s.topColor), [s.topColor]);
   const toneMat = [underMat, midMat, topMat] as const;
 
   // How many canopy clusters render, sparse -> full, keyed on canopyFill
-  // (bare stage keeps only the core + a couple of tip clusters — reads as a
-  // real, if sparse, tree rather than a floating blob).
-  const visibleCount = Math.max(2, Math.round(CANOPY_CLUSTERS.length * s.canopyFill));
+  // (bare stage keeps only the core + a few tip clusters, spread across the
+  // WHOLE cluster list by stride rather than truncating it, so a sparse
+  // winter canopy still scatters thinly across every branch instead of
+  // only ever showing one side of the tree).
+  const visibleCount = Math.max(3, Math.round(canopyClusters.length * s.canopyFill));
+  const stride = Math.max(1, Math.floor(canopyClusters.length / visibleCount));
+  const visibleClusters = useMemo(() => {
+    const picked: Array<[number, number, number, number, 0 | 1 | 2]> = [];
+    for (let i = 0; i < canopyClusters.length && picked.length < visibleCount; i += stride) {
+      picked.push(canopyClusters[i]);
+    }
+    return picked;
+  }, [canopyClusters, visibleCount, stride]);
 
   // A few dry withered leaf-flecks + clinging buds, visible only near the
   // bare end of the arc, scattered near branch tips for a "sparse but alive"
   // winter read instead of a totally naked skeleton.
-  const witheredFlecks = s.bareness > 0.35;
+  const witheredFlecks = s.bareness > 0.3;
 
   // Sway ref + a shared, cheap per-frame rotation — ONE transform, skipped
   // entirely under reduced motion. A gentle "breathing" crown, not a full
@@ -560,46 +756,45 @@ export function AldercradleTreeProp({ stage = 1, position, rotation, scale }: Al
 
   return (
     <group {...g}>
-      {/* Flared, rooted base — a low mound + root ridges spreading outward. */}
+      {/* Flared, rooted base — a low mound + six buttress-root ridges
+          spreading outward, so the base feels ancient and truly rooted. */}
       <mesh position={[0, 0.1, 0]}>
-        <cylinderGeometry args={[0.7, 0.85, 0.2, 10]} />
+        <cylinderGeometry args={[0.72, 0.9, 0.2, 10]} />
         <primitive object={toonOf(TOWN_PROPS_PALETTE.woodLight)} attach="material" />
       </mesh>
       {ROOT_ANGLES.map((a, i) => (
         <mesh
           key={i}
-          position={[Math.cos(a) * 0.55, 0.09, Math.sin(a) * 0.55]}
-          rotation={[0, -a, Math.PI / 2 - 0.25]}
+          position={[Math.cos(a) * 0.58, 0.09, Math.sin(a) * 0.58]}
+          rotation={[0, -a, Math.PI / 2 - 0.22]}
         >
-          <coneGeometry args={[0.16, 0.85, 6]} />
-          <primitive object={trunkMat} attach="material" />
+          <coneGeometry args={[0.17, 0.92, 6]} />
+          <primitive object={i % 2 === 0 ? trunkMat : trunkMatB} attach="material" />
         </mesh>
       ))}
 
       {/* Tapered trunk, rising to the split point. */}
-      <mesh position={[0, 0.75, 0]}>
-        <cylinderGeometry args={[0.22, 0.42, 1.3, 9]} />
+      <mesh position={[0, TRUNK_SPLIT_Y / 2, 0]}>
+        <cylinderGeometry args={[0.24, 0.44, TRUNK_SPLIT_Y, 9]} />
         <primitive object={trunkMat} attach="material" />
       </mesh>
 
-      {/* The split: 3-5 branch limbs reaching upward/outward from the trunk. */}
-      {BRANCH_DIRS.map(([ay, tilt, len], i) => (
-        <mesh
-          key={i}
-          position={[Math.cos(ay) * 0.16 * len, 1.4 + Math.sin(tilt) * len * 0.42, Math.sin(ay) * 0.16 * len]}
-          rotation={[Math.cos(ay) * tilt, ay, Math.PI / 2 - tilt]}
-        >
-          <cylinderGeometry args={[0.05, 0.15, len, 6]} />
-          <primitive object={trunkMat} attach="material" />
+      {/* The branching structure — primary limbs forking into secondary
+          branches (2 levels), naturally spread via the seeded builder. */}
+      {branchSegs.map((b, i) => (
+        <mesh key={i} position={b.pos} rotation={b.rot}>
+          <cylinderGeometry args={[b.radiusTip, b.radiusBase, b.length, 6]} />
+          <primitive object={b.altBark ? trunkMatB : trunkMat} attach="material" />
         </mesh>
       ))}
 
-      {/* Canopy — layered, OPAQUE clusters forming a full rounded crown. A
-          dedicated sway group so the trunk/branches stay planted. */}
+      {/* Canopy — layered, OPAQUE clusters forming a full, irregular,
+          organic rounded crown. A dedicated sway group so the trunk/branches
+          stay planted. */}
       <group ref={canopyRef} position={[0, canopyY, 0]}>
-        {CANOPY_CLUSTERS.slice(0, visibleCount).map(([ox, oy, oz, baseR, tone], i) => (
+        {visibleClusters.map(([ox, oy, oz, baseR, tone], i) => (
           <mesh key={i} position={[ox * s.canopyScale, oy * s.canopyScale, oz * s.canopyScale]}>
-            <sphereGeometry args={[baseR * s.canopyScale * 0.6, 8, 7]} />
+            <sphereGeometry args={[baseR * s.canopyScale * 0.62, 8, 7]} />
             <primitive object={toneMat[tone]} attach="material" />
           </mesh>
         ))}
@@ -607,7 +802,7 @@ export function AldercradleTreeProp({ stage = 1, position, rotation, scale }: Al
         {/* Sparse dry leaf-flecks near the bare end — small flat withered
             leaf-colored discs clinging near the tip clusters. */}
         {witheredFlecks &&
-          CANOPY_CLUSTERS.slice(0, 5).map(([ox, oy, oz], i) => (
+          canopyClusters.slice(0, 6).map(([ox, oy, oz], i) => (
             <mesh key={`fleck-${i}`} position={[ox * s.canopyScale * 1.05, oy * s.canopyScale + 0.1, oz * s.canopyScale * 1.05]}>
               <sphereGeometry args={[0.13, 6, 5]} />
               <primitive object={toonOf(TREE_LEAF_WITHERED)} attach="material" />
@@ -616,7 +811,7 @@ export function AldercradleTreeProp({ stage = 1, position, rotation, scale }: Al
 
         {/* Small colored blossom-dot accents once fully golden-blooming. */}
         {s.blossoms &&
-          CANOPY_CLUSTERS.slice(0, 9).map(([ox, oy, oz, baseR], i) => (
+          canopyClusters.slice(0, 8).map(([ox, oy, oz, baseR], i) => (
             <mesh
               key={`bloom-${i}`}
               position={[
@@ -632,7 +827,7 @@ export function AldercradleTreeProp({ stage = 1, position, rotation, scale }: Al
 
         {/* A few drifting light motes at full radiance. */}
         {s.motes &&
-          [0, 1, 2, 3].map((i) => (
+          [0, 1, 2].map((i) => (
             <MoteSpark key={`mote-${i}`} index={i} radius={1.1 * s.canopyScale} />
           ))}
       </group>
@@ -644,7 +839,7 @@ export function AldercradleTreeProp({ stage = 1, position, rotation, scale }: Al
         </mesh>
       )}
       {s.lightIntensity > 0 && (
-        <pointLight position={[0, canopyY + 0.4, 0]} color={TREE_GLOW} intensity={s.lightIntensity} distance={7} decay={2} />
+        <pointLight position={[0, canopyY + 0.5, 0]} color={TREE_GLOW} intensity={s.lightIntensity} distance={7.5} decay={2} />
       )}
     </group>
   );
