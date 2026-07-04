@@ -9,11 +9,14 @@ import {
   TOWN_HEIGHT,
   TOWN_HOME_TILE,
   TOWN_PORTALS,
+  TOWN_DORMANT_PADS,
   TOWN_SPAWN,
   TOWN_TILES,
+  TOWN_TREE_TILE,
   TOWN_VILLAGERS,
   TOWN_WIDTH,
   actionForVillager,
+  dormantPadAt,
   isTownWalkable,
   portalAt,
   villagerById,
@@ -134,5 +137,51 @@ describe("TOWN_HOME_TILE (the Home building)", () => {
     for (const v of TOWN_VILLAGERS) expect(v.tile).not.toEqual(TOWN_HOME_TILE);
     for (const p of TOWN_PORTALS) expect(p.tile).not.toEqual(TOWN_HOME_TILE);
     expect(TOWN_SPAWN).not.toEqual(TOWN_HOME_TILE);
+  });
+});
+
+describe("TOWN_TREE_TILE (the Aldercradle)", () => {
+  it("sits on a walkable tile, distinct from any villager, pad, Home, or the spawn", () => {
+    const [tx, ty] = TOWN_TREE_TILE;
+    expect(isTownWalkable(tx, ty)).toBe(true);
+    for (const v of TOWN_VILLAGERS) expect(v.tile).not.toEqual(TOWN_TREE_TILE);
+    for (const p of TOWN_PORTALS) expect(p.tile).not.toEqual(TOWN_TREE_TILE);
+    expect(TOWN_SPAWN).not.toEqual(TOWN_TREE_TILE);
+    expect(TOWN_HOME_TILE).not.toEqual(TOWN_TREE_TILE);
+  });
+});
+
+describe("TOWN_DORMANT_PADS (the 5 roadmap worlds)", () => {
+  it("has exactly 5 pads, each on a walkable tile with a unique world id", () => {
+    expect(TOWN_DORMANT_PADS.length).toBe(5);
+    const ids = TOWN_DORMANT_PADS.map((p) => p.worldId);
+    expect(new Set(ids).size).toBe(5);
+    for (const p of TOWN_DORMANT_PADS) {
+      const [x, y] = p.tile;
+      expect(isTownWalkable(x, y)).toBe(true);
+    }
+  });
+
+  it("no dormant pad collides with a villager, live pad, Home, the tree, or the spawn", () => {
+    const occupied = new Set<string>([
+      ...TOWN_VILLAGERS.map((v) => v.tile.join(",")),
+      ...TOWN_PORTALS.map((p) => p.tile.join(",")),
+      TOWN_HOME_TILE.join(","),
+      TOWN_TREE_TILE.join(","),
+      TOWN_SPAWN.join(","),
+    ]);
+    const seen = new Set<string>();
+    for (const p of TOWN_DORMANT_PADS) {
+      const key = p.tile.join(",");
+      expect(occupied.has(key)).toBe(false);
+      expect(seen.has(key)).toBe(false);
+      seen.add(key);
+    }
+  });
+
+  it("dormantPadAt finds a pad on its own tile and misses elsewhere", () => {
+    const first = TOWN_DORMANT_PADS[0]!;
+    expect(dormantPadAt(first.tile[0], first.tile[1])?.worldId).toBe(first.worldId);
+    expect(dormantPadAt(-1, -1)).toBeUndefined();
   });
 });

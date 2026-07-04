@@ -241,6 +241,33 @@ export function portalAt(x: number, y: number): TownPortal | undefined {
   return TOWN_PORTALS.find((p) => p.tile[0] === x && p.tile[1] === y);
 }
 
+// ── dormant future-world pads (Aldercradle roadmap worlds) ──────────────────
+
+/** A DORMANT pad for one of the 5 not-yet-built worlds (bird/slime/nature/
+ *  golem/spirit — see worldtree.ts's WORLDS). Walking onto one never travels
+ *  (there's no zone to go to yet) — it just shows a soft "still sleeps"
+ *  hint. `worldId` matches worldtree.ts's `WorldDescriptor.id` (== the
+ *  creature family), so the Architect can render/label it straight off the
+ *  registry without a second lookup table. */
+export interface TownDormantPad {
+  worldId: string;
+  tile: [number, number];
+  label: string;
+}
+
+export const TOWN_DORMANT_PADS: TownDormantPad[] = [
+  { worldId: "bird", tile: [2, 3], label: "Skyreach" },
+  { worldId: "slime", tile: [10, 3], label: "Ooze Hollow" },
+  { worldId: "nature", tile: [2, 7], label: "Verdant Hush" },
+  { worldId: "golem", tile: [10, 7], label: "Stonewake" },
+  { worldId: "spirit", tile: [6, 9], label: "The Hollow Vale" },
+];
+
+/** The dormant pad standing on `[x, y]`, or undefined. */
+export function dormantPadAt(x: number, y: number): TownDormantPad | undefined {
+  return TOWN_DORMANT_PADS.find((p) => p.tile[0] === x && p.tile[1] === y);
+}
+
 // ── the Home building (party/box management — replaces the old Sanctuary landing) ─
 
 /** The Home building's door tile — walk onto it, or stand adjacent and press
@@ -248,6 +275,14 @@ export function portalAt(x: number, y: number): TownPortal | undefined {
  *  clear, uncrowded floor tile north of the plaza so it reads as its own
  *  little house, not a villager. */
 export const TOWN_HOME_TILE: [number, number] = [6, 2];
+
+// ── Aldercradle (the world-tree, plaza center — replaces the old fountain) ──
+
+/** The Aldercradle's tile — the plaza's paved-ring center, same spot the
+ *  fountain used to occupy in town-scene.tsx. Walk onto it, or stand adjacent
+ *  and press E (mirroring the Home/villager interactions), to open the
+ *  Aldercradle panel (progress toward 8/8 Heartseeds). */
+export const TOWN_TREE_TILE: [number, number] = [6, 5];
 
 /** The four cardinal step directions `town-scene.tsx`'s `onMove` accepts. */
 export type TownDirection = "up" | "down" | "left" | "right";
