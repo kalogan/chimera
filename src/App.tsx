@@ -6,6 +6,9 @@ import { GooberStage, type Placed } from "./GooberStage.js";
 import { ZoneScene } from "./ZoneScene.js";
 import { audio, resumeAudio } from "./audio.js";
 import { playBattleEvents } from "./battle-audio.js";
+import { Splash } from "./shell/splash.js";
+import { PauseOverlay } from "./shell/pause.js";
+import { HudBar } from "./shell/hud.js";
 import {
   newGame,
   partyCreatures,
@@ -27,8 +30,16 @@ import {
   type GameState,
 } from "./game.js";
 
+// Shell layer state — SEPARATE from game.ts's `Screen` type on purpose (that's
+// the game-logic router; splash/pause are a shell concern layered on top of
+// whatever screen the game is currently on). "splash" gates the whole app
+// before any game state is shown; "playing" reveals the normal screen router.
+type ShellPhase = "splash" | "playing";
+
 export function App() {
   const [game, setGame] = useState<GameState>(() => newGame());
+  const [shellPhase, setShellPhase] = useState<ShellPhase>("splash");
+  const [paused, setPaused] = useState(false);
   const resumedRef = useRef(false);
 
   // Unlock procedural audio on the first user gesture (browser autoplay policy).
@@ -39,13 +50,51 @@ export function App() {
     }
   };
 
+  // Esc opens/closes the pause overlay while playing (not on the splash, which
+  // has no pause concept, and not while a settings/pause panel already governs
+  // Esc itself — PauseOverlay stops propagation on its own Esc handler).
+  useEffect(() => {
+    if (shellPhase !== "playing") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || paused) return;
+      e.preventDefault();
+      audio().playUi("select");
+      setPaused(true);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [shellPhase, paused]);
+
+  if (shellPhase === "splash") {
+    return (
+      <div style={{ position: "fixed", inset: 0 }}>
+        <Splash
+          onStart={() => {
+            resumedRef.current = true;
+            setShellPhase("playing");
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div onPointerDown={unlock} style={{ position: "fixed", inset: 0 }}>
-      {game.screen === "party" && <PartyScreen game={game} setGame={setGame} />}
-      {game.screen === "zone" && <ZoneScreen game={game} setGame={setGame} />}
-      {game.screen === "battle" && <BattleScreen game={game} setGame={setGame} />}
+      {game.screen === "party" && <PartyScreen game={game} setGame={setGame} onPause={() => setPaused(true)} />}
+      {game.screen === "zone" && <ZoneScreen game={game} setGame={setGame} onPause={() => setPaused(true)} paused={paused} />}
+      {game.screen === "battle" && <BattleScreen game={game} setGame={setGame} onPause={() => setPaused(true)} />}
       {game.screen === "cradle" && <CradleScreen game={game} setGame={setGame} />}
       {game.screen === "newborn" && <NewbornScreen game={game} setGame={setGame} />}
+      {paused && (
+        <PauseOverlay
+          onResume={() => setPaused(false)}
+          onReturnToTitle={() => {
+            setPaused(false);
+            setGame(newGame());
+            setShellPhase("splash");
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -53,7 +102,7 @@ export function App() {
 type ScreenProps = { game: GameState; setGame: (g: GameState) => void };
 
 // ── Sanctuary / party ─────────────────────────────────────────────────────────
-function PartyScreen({ game, setGame }: ScreenProps) {
+function PartyScreen({ game, setGame, onPause }: ScreenProps & { onPause: () => void }) {
   const party = useMemo(() => partyCreatures(game), [game]);
   const placed: Placed[] = party.map((c, i) => ({
     id: c.token.id,
@@ -70,13 +119,13 @@ function PartyScreen({ game, setGame }: ScreenProps) {
     <>
       <GooberStage placed={placed} cameraPos={[0, 6, 34]} fov={28} />
       <div className="overlay">
-        <div className="banner">
-          <div>
-            <div className="title">CHIMERA · The Sanctuary</div>
-            <div className="subtitle">Aldercradle is fading — scout, bond, and breed new life.</div>
-          </div>
-          <div className="dex">Dex {dexTotal(game)} · Party {game.roster.party.length}/3 · Box {game.roster.storage.length}</div>
-        </div>
+        <HudBar
+          title="CHIMERA · The Sanctuary"
+          subtitle="Aldercradle is fading — scout, bond, and breed new life."
+          dexText={`Dex ${dexTotal(game)} · Party ${game.roster.party.length}/3 · Box ${game.roster.storage.length}`}
+          party={party}
+          onPause={onPause}
+        />
         <div className="actionbar">
           <button className="act primary" onClick={() => { audio().playUi("confirm"); setGame(enterZone(game)); }}>
             Explore the meadow →
@@ -99,7 +148,7 @@ const KEY_DIR: Record<string, Dir> = {
   ArrowRight: "right", KeyD: "right",
 };
 
-function ZoneScreen({ game, setGame }: ScreenProps) {
+function ZoneScreen({ game, setGame, onPause, paused }: ScreenProps & { onPause: () => void; paused: boolean }) {
   const zone = game.zone;
   const playerSpec = useMemo(() => partyCreatures(game)[0]?.gooberSpec, [game]);
   const busy = useRef(false); // locked while an encounter/portal transition plays
@@ -110,9 +159,11 @@ function ZoneScreen({ game, setGame }: ScreenProps) {
     return () => audio().stopAmbient();
   }, []);
 
-  // One step per press, rate-limited so a held key can't outrun the hop.
+  // One step per press, rate-limited so a held key can't outrun the hop. Also
+  // gated on `paused` so neither the touch d-pad nor the keydown listener below
+  // can step the zone while the pause overlay is up.
   const onStep = (dir: Dir) => {
-    if (busy.current) return;
+    if (busy.current || paused) return;
     const now = performance.now();
     if (now - lastStep.current < 135) return;
     lastStep.current = now;
@@ -137,13 +188,14 @@ function ZoneScreen({ game, setGame }: ScreenProps) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (paused) return; // the pause overlay owns Esc/input while it's up
       const dir = KEY_DIR[e.code];
       if (dir) { e.preventDefault(); onStep(dir); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [game]);
+  }, [game, paused]);
 
   if (!zone || !playerSpec) return null;
 
@@ -151,13 +203,12 @@ function ZoneScreen({ game, setGame }: ScreenProps) {
     <>
       <ZoneScene zone={zone} playerSpec={playerSpec} />
       <div className="overlay">
-        <div className="banner">
-          <div>
-            <div className="title">Meadowmere</div>
-            <div className="subtitle">Wild goobers roam — walk into one to meet it.</div>
-          </div>
-          <div className="dex">Dex {dexTotal(game)} · Party {game.roster.party.length}/3</div>
-        </div>
+        <HudBar
+          title="Meadowmere"
+          subtitle="Wild goobers roam — walk into one to meet it."
+          dexText={`Dex ${dexTotal(game)} · Party ${game.roster.party.length}/3`}
+          onPause={onPause}
+        />
         <div className="hint" style={{ position: "absolute", bottom: 116, left: 0, right: 0, textAlign: "center" }}>
           ↑↓←→ / WASD to walk · reach the golden ring to head home
         </div>
@@ -204,7 +255,7 @@ function CombatantCard({ c, active }: { c: Combatant; active: boolean }) {
   );
 }
 
-function BattleScreen({ game, setGame }: ScreenProps) {
+function BattleScreen({ game, setGame, onPause }: ScreenProps & { onPause: () => void }) {
   const b = game.battle;
   if (!b) return null;
   const actor = activeActor(b);
@@ -222,10 +273,11 @@ function BattleScreen({ game, setGame }: ScreenProps) {
     <>
       <GooberStage placed={placed} cameraPos={[3, 7, 21]} fov={32} bg="#a9d9c0" ground="#cfe6a8" />
       <div className="overlay">
-        <div className="banner">
-          <div className="title">Encounter</div>
-          <div className="dex">{game.outcome ? game.outcome.toUpperCase() : b.phase}</div>
-        </div>
+        <HudBar
+          title="Encounter"
+          dexText={game.outcome ? game.outcome.toUpperCase() : b.phase}
+          onPause={onPause}
+        />
         <div className="cards enemy">
           {b.enemyTeam.map((c) => <CombatantCard key={c.id} c={c} active={actor?.id === c.id} />)}
         </div>
