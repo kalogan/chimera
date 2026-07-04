@@ -60,6 +60,36 @@ export const STAGE_PALETTE: EnvPalette = {
   fillIntensity: 1.0,
 };
 
+/** Emberdeep — the ember caverns. Warm/dark: a dim ember-glow horizon, a hot
+ *  low key light, close smoky fog so the cavern reads as enclosed, not open sky. */
+export const EMBERDEEP_PALETTE: EnvPalette = {
+  skyHorizon: "#4a2418",
+  skyZenith: "#1c1016",
+  fogColor: "#3a1e16",
+  fogNear: 14,
+  fogFar: 42,
+  keyColor: "#ff8a3d",
+  keyIntensity: 1.6,
+  fillSky: "#6b3420",
+  fillGround: "#2b1a14",
+  fillIntensity: 0.85,
+};
+
+/** Tidewrack — the tide pools. Cool/teal: a pale sea-glass horizon, a cool
+ *  blue-green key, and a longer soft fog so it reads as misty coastline. */
+export const TIDEWRACK_PALETTE: EnvPalette = {
+  skyHorizon: "#bfe9e6",
+  skyZenith: "#2f7c94",
+  fogColor: "#a9dcd9",
+  fogNear: 20,
+  fogFar: 60,
+  keyColor: "#bfeee0",
+  keyIntensity: 1.15,
+  fillSky: "#d8f5f0",
+  fillGround: "#3c8a83",
+  fillIntensity: 1.1,
+};
+
 /**
  * Build a vertical-gradient canvas texture (a couple dozen KB, generated once
  * and memoized) used both as the sky-sphere map. Cheap alternative to an HDRI.

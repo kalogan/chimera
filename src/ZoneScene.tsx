@@ -1,9 +1,12 @@
 /**
- * ZoneScene — CHIMERA's walkable 2.5D overworld (Wave 2). An angled top-down
- * "HD-2D" camera follows the player across a tile grid; goobers are billboarded
- * (always facing the camera) and hop between tiles. Pure render of a
- * `world-runtime` ZoneState — movement is authored by the reducer, the view only
- * tweens toward the current tile positions. Input lives in App (it owns state).
+ * ZoneScene — CHIMERA's walkable 2.5D overworld (Wave 2, per-zone themed in
+ * Wave 5). An angled top-down "HD-2D" camera follows the player across a tile
+ * grid; goobers are billboarded (always facing the camera) and hop between
+ * tiles. Pure render of a `world-runtime` ZoneState — movement is authored by
+ * the reducer, the view only tweens toward the current tile positions. Input
+ * lives in App (it owns state). The zone's own `descriptor.id` picks its
+ * `ZoneTheme` (env palette + ground/wall/grass tint) so Meadowmere/Emberdeep/
+ * Tidewrack each read as a distinct place, not a recolored copy.
  */
 import { useMemo, useRef } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
@@ -12,7 +15,14 @@ import { Billboard } from "game-kit/billboard/r3f";
 import { creatureFromToken, type GooberSpec } from "game-kit/creature";
 import type { ZoneState } from "game-kit/world-runtime";
 import { Goober } from "./Goober.js";
-import { ContactBlob, GooberEnv, ZONE_PALETTE } from "./env.js";
+import {
+  ContactBlob,
+  GooberEnv,
+  ZONE_PALETTE,
+  EMBERDEEP_PALETTE,
+  TIDEWRACK_PALETTE,
+  type EnvPalette,
+} from "./env.js";
 import type { PlacedRival } from "./rivals.js";
 
 const TILE = 2.2;
@@ -29,16 +39,70 @@ function worldOf(x: number, y: number, w: number, h: number): [number, number, n
   return [(x - (w - 1) / 2) * TILE, 0, (y - (h - 1) / 2) * TILE];
 }
 
+/** Per-zone "look": env palette + the tile colors Terrain paints with. */
+interface ZoneTheme {
+  palette: EnvPalette;
+  bg: string;
+  groundBase: string;
+  groundSpots: [string, string];
+  wall: string;
+  grassFloor: string;
+  grassBlade: string;
+}
+
+const MEADOWMERE_THEME: ZoneTheme = {
+  palette: ZONE_PALETTE,
+  bg: "#bfe6f2",
+  groundBase: "#8ec96a",
+  groundSpots: ["rgba(70,120,60,0.16)", "rgba(190,230,150,0.14)"],
+  wall: "#5f8a4c",
+  grassFloor: "#6fae52",
+  grassBlade: "#4f9440",
+};
+
+// Emberdeep — hot cavern floor, dark basalt walls, ember-vents instead of grass.
+const EMBERDEEP_THEME: ZoneTheme = {
+  palette: EMBERDEEP_PALETTE,
+  bg: "#2a1712",
+  groundBase: "#5a3324",
+  groundSpots: ["rgba(20,10,8,0.28)", "rgba(255,140,60,0.16)"],
+  wall: "#3a241c",
+  grassFloor: "#7a3a22",
+  grassBlade: "#ff8a3d",
+};
+
+// Tidewrack — wet sand floor, weathered rock walls, tide-pools instead of grass.
+const TIDEWRACK_THEME: ZoneTheme = {
+  palette: TIDEWRACK_PALETTE,
+  bg: "#bfe9e6",
+  groundBase: "#d8c99a",
+  groundSpots: ["rgba(90,110,90,0.16)", "rgba(220,240,235,0.18)"],
+  wall: "#5a6b6a",
+  grassFloor: "#3fa79c",
+  grassBlade: "#bff0e6",
+};
+
+const ZONE_THEMES: Record<string, ZoneTheme> = {
+  meadowmere: MEADOWMERE_THEME,
+  emberdeep: EMBERDEEP_THEME,
+  tidewrack: TIDEWRACK_THEME,
+};
+
+function themeFor(zoneId: string): ZoneTheme {
+  return ZONE_THEMES[zoneId] ?? MEADOWMERE_THEME;
+}
+
 // Ground mottling: a small tileable canvas of soft irregular blotches, layered
-// over the flat toon green so the field reads as grass rather than a pool
-// table. Deterministic (fixed seed) — built once, no Math.random in render.
-function makeGroundTexture(): THREE.CanvasTexture {
+// over the flat toon base color so the ground reads as textured terrain
+// rather than a pool table. Deterministic (fixed seed) — built once per
+// theme, no Math.random in render.
+function makeGroundTexture(theme: ZoneTheme): THREE.CanvasTexture {
   const size = 256;
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext("2d")!;
-  ctx.fillStyle = "#8ec96a";
+  ctx.fillStyle = theme.groundBase;
   ctx.fillRect(0, 0, size, size);
   let s = 1337;
   const rand = () => {
@@ -50,7 +114,7 @@ function makeGroundTexture(): THREE.CanvasTexture {
     const y = rand() * size;
     const r = 4 + rand() * 14;
     const dark = rand() > 0.5;
-    ctx.fillStyle = dark ? "rgba(70,120,60,0.16)" : "rgba(190,230,150,0.14)";
+    ctx.fillStyle = dark ? theme.groundSpots[0] : theme.groundSpots[1];
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fill();
@@ -146,14 +210,14 @@ function FollowCam({ target }: { target: React.MutableRefObject<THREE.Vector3> }
   return null;
 }
 
-/** Static tile geometry: hedges, tall grass, the portal pad, the ground. */
-function Terrain({ zone }: { zone: ZoneState }) {
+/** Static tile geometry: walls, the encounter-tile dressing, the portal pad, the ground. */
+function Terrain({ zone, theme }: { zone: ZoneState; theme: ZoneTheme }) {
   const { width: w, height: h, tiles } = zone.descriptor;
   const groundTex = useMemo(() => {
-    const tex = makeGroundTexture();
+    const tex = makeGroundTexture(theme);
     tex.repeat.set((w * TILE) / 6, (h * TILE) / 6);
     return tex;
-  }, [w, h]);
+  }, [w, h, theme]);
   const cells = useMemo(() => {
     const out: React.ReactElement[] = [];
     for (let i = 0; i < tiles.length; i++) {
@@ -165,7 +229,7 @@ function Terrain({ zone }: { zone: ZoneState }) {
         out.push(
           <mesh key={i} position={[wx, 0.7, wz]} castShadow={false}>
             <boxGeometry args={[TILE * 0.98, 1.4, TILE * 0.98]} />
-            <meshToonMaterial color="#5f8a4c" />
+            <meshToonMaterial color={theme.wall} />
           </mesh>,
         );
       } else if (kind === "grass") {
@@ -173,12 +237,12 @@ function Terrain({ zone }: { zone: ZoneState }) {
           <group key={i} position={[wx, 0, wz]}>
             <mesh position={[0, 0.01, 0]} rotation={[-Math.PI / 2, 0, 0]}>
               <planeGeometry args={[TILE, TILE]} />
-              <meshToonMaterial color="#6fae52" />
+              <meshToonMaterial color={theme.grassFloor} />
             </mesh>
             {[-0.5, 0.2, 0.6].map((ox, k) => (
               <mesh key={k} position={[ox, 0.32, (k - 1) * 0.5]}>
                 <coneGeometry args={[0.22, 0.7, 5]} />
-                <meshToonMaterial color="#4f9440" />
+                <meshToonMaterial color={theme.grassBlade} />
               </mesh>
             ))}
           </group>,
@@ -199,7 +263,7 @@ function Terrain({ zone }: { zone: ZoneState }) {
       }
     }
     return out;
-  }, [zone.descriptor, w, h, tiles]);
+  }, [zone.descriptor, w, h, tiles, theme]);
 
   return (
     <>
@@ -225,6 +289,7 @@ export function ZoneScene({
   const playerPos = useRef(new THREE.Vector3());
   const { width: w, height: h } = zone.descriptor;
   const [spawnX, , spawnZ] = worldOf(zone.player.x, zone.player.y, w, h);
+  const theme = themeFor(zone.descriptor.id);
 
   return (
     <Canvas
@@ -232,10 +297,10 @@ export function ZoneScene({
       shadows={false}
       camera={{ position: [spawnX, CAM_UP, spawnZ + CAM_BACK], fov: CAM_FOV }}
     >
-      <color attach="background" args={["#bfe6f2"]} />
-      <GooberEnv palette={ZONE_PALETTE} />
+      <color attach="background" args={[theme.bg]} />
+      <GooberEnv palette={theme.palette} />
       <FollowCam target={playerPos} />
-      <Terrain zone={zone} />
+      <Terrain zone={zone} theme={theme} />
       <Actor
         spec={playerSpec}
         tx={zone.player.x}

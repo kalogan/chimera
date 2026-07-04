@@ -43,7 +43,7 @@ import {
   itemDef,
   type EconomyState,
 } from "game-kit/economy";
-import { MEADOWMERE } from "./zone.js";
+import { MEADOWMERE, ZONES, zoneById, SANCTUARY_TARGET } from "./zone.js";
 import {
   makeRivals,
   makeRivalCtx,
@@ -74,17 +74,25 @@ export interface GameState {
   newborn: Creature | null;
   lastBreed: BreedResult | null;
   breedSeed: number;
-  // Overworld (Wave 2). `zone` is the walkable Meadowmere state; when a battle is
-  // entered FROM the zone, `zoneReturnRoamerId` remembers which roamer to consume
-  // on the way back (null for a tall-grass encounter).
+  // Overworld (Wave 2, generalized Wave 5). `zone` is the CURRENT walkable zone's
+  // state (Meadowmere/Emberdeep/Tidewrack — see zone.ts's registry); when a battle
+  // is entered FROM the zone, `zoneReturnRoamerId` remembers which roamer to
+  // consume on the way back (null for a tall-grass encounter).
   zone: ZoneState | null;
   zoneReturnRoamerId: string | null;
+  // Wave 5: the small world map. Zone ids the player has unlocked/can travel to —
+  // Meadowmere is always unlocked; the others open the first time their portal is
+  // reached (a portal is always walkable, so in practice all three are reachable
+  // from the start via the travel graph, but this also drives the Sanctuary's
+  // "Explore" zone picker and survives a save round-trip).
+  unlockedZones: string[];
   // Wave 3: currency + inventory (the Market). Gold is earned from encounters;
   // items are bought here and (next slice) used in battle.
   economy: EconomyState;
   // Wave 4: rivals. Two AI rivals sim off-screen (kit `rival` module — real
-  // roster/dex/breeding/economy reducers) and roam Meadowmere; walking into one
-  // triggers a RIVAL BATTLE against their sim-produced party. `rivalBattleId`
+  // roster/dex/breeding/economy reducers) and roam the world map (Wave 5:
+  // distributed one per zone rather than all camping Meadowmere); walking into
+  // one triggers a RIVAL BATTLE against their sim-produced party. `rivalBattleId`
   // remembers which rival you're currently fighting (null for a wild battle) so
   // Return-to-zone knows to relocate/advance that rival rather than consume a
   // roamer.
@@ -115,6 +123,7 @@ export function newGame(): GameState {
     breedSeed: 1,
     zone: null,
     zoneReturnRoamerId: null,
+    unlockedZones: ["meadowmere"],
     economy: createEconomy({ gold: 120, items: { "healing-herb": 2 } }),
     rivals: makeRivals(),
     rivalBattleId: null,
@@ -157,22 +166,33 @@ export function startEncounter(g: GameState): GameState {
   };
 }
 
-// ── Overworld (Wave 2): the walkable Meadowmere ────────────────────────────────
+// ── Overworld (Wave 2, generalized Wave 5: a small world map) ──────────────────
 
 // How many off-screen sim steps each rival gets per zone entry — enough that
 // their roster/economy visibly differ (a scout, a hunt, sometimes a breed)
 // between visits without a long pause.
 const RIVAL_STEPS_PER_VISIT = 3;
 
-/** Leave the Sanctuary and walk into Meadowmere (a fresh, seeded zone). */
-export function enterZone(g: GameState): GameState {
+/**
+ * Leave the Sanctuary (or travel from another zone) into `zoneId`'s walkable
+ * map (a fresh, seeded zone state each time). Defaults to Meadowmere — the
+ * entry zone every fresh game starts unlocked. Only rivals CURRENTLY in the
+ * destination zone advance/relocate; rivals elsewhere keep simming quietly
+ * off-screen without a placement change (handled by `advanceRivals` itself).
+ */
+export function enterZone(g: GameState, zoneId: string = "meadowmere"): GameState {
+  const descriptor = zoneById(zoneId);
   const ctx = makeRivalCtx();
-  const rivals = advanceRivals(g.rivals, ctx, RIVAL_STEPS_PER_VISIT, MEADOWMERE.id);
+  const rivals = advanceRivals(g.rivals, ctx, RIVAL_STEPS_PER_VISIT, descriptor.id);
+  const unlockedZones = g.unlockedZones.includes(descriptor.id)
+    ? g.unlockedZones
+    : [...g.unlockedZones, descriptor.id];
   return {
     ...g,
     screen: "zone",
-    zone: createZone(MEADOWMERE, g.encounterSeed * 101 + 7),
+    zone: createZone(descriptor, g.encounterSeed * 101 + 7),
     zoneReturnRoamerId: null,
+    unlockedZones,
     rivals,
     rivalBattleId: null,
   };
@@ -224,6 +244,7 @@ export function zoneStep(
 ): { game: GameState; events: ZoneEvent[]; pending: ZonePending } {
   if (g.screen !== "zone" || !g.zone) return { game: g, events: [], pending: null };
   const { state, events } = stepZone(g.zone, dir);
+  const zoneId = g.zone.descriptor.id;
 
   let rivals = g.rivals;
   let pending: ZonePending = null;
@@ -235,13 +256,13 @@ export function zoneStep(
     // Only drift rivals + check collision on a successful, uncontested hop.
     rivals = driftRivals(
       g.rivals,
-      MEADOWMERE.id,
+      zoneId,
       state.player.x,
       state.player.y,
       state.step,
       (x, y) => isWalkable(state, x, y),
     );
-    const hit = rivalAt(rivals, MEADOWMERE.id, state.player.x, state.player.y);
+    const hit = rivalAt(rivals, zoneId, state.player.x, state.player.y);
     if (hit) pending = { kind: "rival", rivalId: hit.rival.id, name: hit.rival.name };
   }
 
@@ -288,11 +309,12 @@ function hashSeedFromId(id: string): number {
   return (h >>> 0) % 97 + 3;
 }
 
-/** After a zone battle resolves, return to Meadowmere (consuming that roamer). */
+/** After a zone battle resolves, return to the current zone (consuming that roamer). */
 export function returnToZone(g: GameState): GameState {
   const zone = g.zone
     ? resumeAfterEncounter(g.zone, g.zoneReturnRoamerId ?? undefined)
     : g.zone;
+  const zoneId = g.zone?.descriptor.id ?? MEADOWMERE.id;
 
   // A rival battle doesn't consume a kit roamer — instead, advance that
   // rival's off-screen sim a beat further and relocate it, so it moves on
@@ -302,7 +324,7 @@ export function returnToZone(g: GameState): GameState {
     const found = rivals.find((p) => p.rival.id === g.rivalBattleId);
     if (found) {
       const ctx = makeRivalCtx();
-      const [advanced] = advanceRivals([found], ctx, RIVAL_STEPS_PER_VISIT, MEADOWMERE.id);
+      const [advanced] = advanceRivals([found], ctx, RIVAL_STEPS_PER_VISIT, zoneId);
       rivals = updateRival(rivals, advanced!);
     }
   }
@@ -321,7 +343,21 @@ export function returnToZone(g: GameState): GameState {
   };
 }
 
-/** Step out of Meadowmere back to the Sanctuary hub (via the portal). */
+/**
+ * Resolve a portal's `to` target: either `'sanctuary'` (leave the overworld
+ * back to the hub) or another zone id (travel there directly, staying in the
+ * "zone" screen). Both `exitZone` (legacy no-arg call, always the Sanctuary)
+ * and the view's portal-pending handler route through this single function so
+ * the travel graph has one source of truth.
+ */
+export function travelPortal(g: GameState, to: string): GameState {
+  if (to === SANCTUARY_TARGET || !ZONES[to]) {
+    return exitZone(g);
+  }
+  return enterZone({ ...g, screen: "party", zone: null, zoneReturnRoamerId: null }, to);
+}
+
+/** Step out of the overworld back to the Sanctuary hub (via a portal). */
 export function exitZone(g: GameState): GameState {
   return { ...g, screen: "party", zone: null, zoneReturnRoamerId: null, log: [] };
 }

@@ -10,6 +10,7 @@ import { Splash } from "./shell/splash.js";
 import { PauseOverlay } from "./shell/pause.js";
 import { HudBar } from "./shell/hud.js";
 import { itemDef, shopFor, SELL_FRACTION } from "game-kit/economy";
+import { ZONE_LABELS } from "./zone.js";
 import {
   newGame,
   partyCreatures,
@@ -20,7 +21,7 @@ import {
   startEncounterWith,
   startRivalBattle,
   returnToZone,
-  exitZone,
+  travelPortal,
   activeActor,
   defaultTargetId,
   stepBattle,
@@ -120,10 +121,15 @@ function PartyScreen({ game, setGame, onPause }: ScreenProps & { onPause: () => 
     facing: 0,
     seed: i * 37 + 5,
   }));
+  const [zonePicker, setZonePicker] = useState(false);
   useEffect(() => {
     audio().startAmbient("sanctuary-aldercradle");
     return () => audio().stopAmbient();
   }, []);
+  const goTo = (zoneId: string) => {
+    audio().playUi("confirm");
+    setGame(enterZone(game, zoneId));
+  };
   return (
     <>
       <GooberStage placed={placed} cameraPos={[0, 6, 34]} fov={28} />
@@ -136,9 +142,17 @@ function PartyScreen({ game, setGame, onPause }: ScreenProps & { onPause: () => 
           onPause={onPause}
         />
         <div className="actionbar">
-          <button className="act primary" onClick={() => { audio().playUi("confirm"); setGame(enterZone(game)); }}>
-            Explore the meadow →
-          </button>
+          {!zonePicker ? (
+            <button className="act primary" onClick={() => setZonePicker(true)}>
+              Explore →
+            </button>
+          ) : (
+            game.unlockedZones.map((zoneId) => (
+              <button key={zoneId} className="act primary" onClick={() => goTo(zoneId)}>
+                {ZONE_LABELS[zoneId] ?? zoneId} →
+              </button>
+            ))
+          )}
           <button className="act bond" disabled={game.roster.party.length + game.roster.storage.length < 2}
             onClick={() => { audio().playUi("confirm"); setGame(openCradle(game)); }}>
             The Cradle (breed)
@@ -162,14 +176,16 @@ const KEY_DIR: Record<string, Dir> = {
 
 function ZoneScreen({ game, setGame, onPause, paused }: ScreenProps & { onPause: () => void; paused: boolean }) {
   const zone = game.zone;
+  const zoneId = zone?.descriptor.id ?? "meadowmere";
   const playerSpec = useMemo(() => partyCreatures(game)[0]?.gooberSpec, [game]);
   const busy = useRef(false); // locked while an encounter/portal transition plays
   const lastStep = useRef(0);
 
   useEffect(() => {
-    audio().startAmbient("meadowmere-verdant");
+    audio().startAmbient(`${zoneId}-ambient`);
     return () => audio().stopAmbient();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zoneId]);
 
   // One step per press, rate-limited so a held key can't outrun the hop. Also
   // gated on `paused` so neither the touch d-pad nor the keydown listener below
@@ -203,7 +219,8 @@ function ZoneScreen({ game, setGame, onPause, paused }: ScreenProps & { onPause:
     } else if (pending?.kind === "portal") {
       busy.current = true;
       audio().playUi("confirm");
-      window.setTimeout(() => setGame(exitZone(g2)), 260);
+      const to = pending.to;
+      window.setTimeout(() => setGame(travelPortal(g2, to)), 260);
     }
   };
 
@@ -230,13 +247,13 @@ function ZoneScreen({ game, setGame, onPause, paused }: ScreenProps & { onPause:
       <ZoneScene zone={zone} playerSpec={playerSpec} rivals={inZoneRivals} />
       <div className="overlay">
         <HudBar
-          title="Meadowmere"
+          title={ZONE_LABELS[zoneId] ?? zoneId}
           subtitle="Wild goobers roam, and a rival or two are about — walk into one to meet it."
           dexText={`Dex ${dexTotal(game)} · Party ${game.roster.party.length}/3`}
           onPause={onPause}
         />
         <div className="hint" style={{ position: "absolute", bottom: 116, left: 0, right: 0, textAlign: "center" }}>
-          ↑↓←→ / WASD to walk · reach the golden ring to head home
+          ↑↓←→ / WASD to walk · reach a golden ring to travel onward
         </div>
         <div className="dpad">
           <button className="pad up" onClick={() => onStep("up")}>▲</button>
@@ -329,7 +346,7 @@ function BattleScreen({ game, setGame, onPause }: ScreenProps & { onPause: () =>
         <div className="actionbar">
           {game.outcome ? (
             <button className="act primary" onClick={() => setGame(game.zone ? returnToZone(game) : leaveBattle(game))}>
-              {game.zone ? "Back to the meadow →" : "Return to the Sanctuary →"}
+              {game.zone ? `Back to ${ZONE_LABELS[game.zone.descriptor.id] ?? "the zone"} →` : "Return to the Sanctuary →"}
             </button>
           ) : actor && target ? (
             itemMenu ? (

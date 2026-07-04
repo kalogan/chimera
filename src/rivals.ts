@@ -1,20 +1,27 @@
 /**
- * rivals — CHIMERA's chimera-side rival roster + off-screen sim (Wave 4). Two
+ * rivals — CHIMERA's chimera-side rival roster + off-screen sim (Wave 4/5). Two
  * named AI rivals (Vesk the Hoarder, Lune the Breeder) play the kit's
  * deterministic `rival` module off-screen: their own roster/dex/economy grow
  * via `runRival` between visits, using the SAME seeded utility AI + reducers
  * as the dev inspector. This module does NOT reimplement any of that — it
- * only (a) seeds two rivals + a shared `RivalCtx` zone pool, (b) advances
- * their sim a few steps whenever the player enters a zone, and (c) tracks a
- * lightweight, chimera-owned overworld TILE POSITION per rival so one can be
- * placed in Meadowmere and walked into — the kit's `world-runtime` stays
- * untouched (rivals are NOT `RoamerState`s; they're a parallel, simpler
- * "wander/drift" model kept entirely in chimera).
+ * only (a) seeds two rivals + a shared `RivalCtx` zone pool (one per walkable
+ * zone), (b) advances their sim a few steps whenever the player enters a
+ * zone, and (c) tracks a lightweight, chimera-owned overworld TILE POSITION
+ * per rival so one can be placed in whichever zone it currently roams and
+ * walked into — the kit's `world-runtime` stays untouched (rivals are NOT
+ * `RoamerState`s; they're a parallel, simpler "wander/drift" model kept
+ * entirely in chimera).
  *
  * The payoff: the rival's party when you meet them is `rival.roster.party`
  * straight from the sim — never a fixed/authored team. Battle them again
  * later and the roster has moved on (bred, scouted, ranked up) exactly as
  * far as its `runRival` steps took it.
+ *
+ * DISTRIBUTION (Wave 5): Vesk (the Hoarder, dragon-favoring) roams Emberdeep;
+ * Lune (the Breeder) roams Tidewrack — so you run into a different rival in a
+ * different place rather than both camping Meadowmere. Each also starts with
+ * THREE starters (not one/two) so the FIRST rival battle is ~3v3, not 1v3
+ * (balance fix flagged by the encounter builder).
  */
 import { createRng, hashStringToSeed, type Rng } from "game-kit/prng";
 import { seedToken } from "game-kit/creature";
@@ -28,12 +35,20 @@ import {
 } from "game-kit/rival";
 import type { Dir } from "game-kit/world-runtime";
 
-/** Wild pool a rival's sim draws from while "in" Meadowmere — mirrors zone.ts's flavour. */
+/** Wild pool a rival's sim draws from per zone — mirrors zone.ts's per-zone flavour. */
 const MEADOWMERE_RIVAL_POOL = ["w9", "w25", "w3", "w16", "w70", "w56"].map((id) => seedToken(id));
+const EMBERDEEP_RIVAL_POOL = ["w112", "w101", "w119", "w124", "w137", "w146"].map((id) => seedToken(id));
+const TIDEWRACK_RIVAL_POOL = ["w100", "w103", "w111", "w107", "w120", "w108"].map((id) => seedToken(id));
 
 /** The shared, pure context every rival's sim step reads (per-zone wild pools). */
 export function makeRivalCtx(): RivalCtx {
-  return { zonePool: { meadowmere: MEADOWMERE_RIVAL_POOL } };
+  return {
+    zonePool: {
+      meadowmere: MEADOWMERE_RIVAL_POOL,
+      emberdeep: EMBERDEEP_RIVAL_POOL,
+      tidewrack: TIDEWRACK_RIVAL_POOL,
+    },
+  };
 }
 
 /** A rival's chimera-tracked overworld placement — separate from its sim state. */
@@ -50,51 +65,79 @@ export interface PlacedRival {
   placement: RivalPlacement;
 }
 
-// Tiles Vesk/Lune may roam Meadowmere on — hand-picked open floor/grass spots
-// (verified against zone.ts's MAP) away from the spawn so the player runs into
-// them while exploring, not the instant they enter. (Meadowmere is 13x9.)
-const MEADOWMERE_SPOTS: Array<[number, number]> = [
-  [1, 2],
-  [10, 2],
-  [8, 3],
-  [10, 6],
-  [1, 6],
-  [11, 5],
-];
+// Tiles a rival may roam a given zone on — hand-picked open floor/grass spots
+// (verified against each zone's MAP in zone.ts) away from the spawn so the
+// player runs into them while exploring, not the instant they enter. Every
+// walkable zone is 13x9, but each map's open tiles differ, so each gets its
+// own hand-picked table.
+const ZONE_SPOTS: Record<string, Array<[number, number]>> = {
+  meadowmere: [
+    [1, 2],
+    [10, 2],
+    [8, 3],
+    [10, 6],
+    [1, 6],
+    [11, 5],
+  ],
+  emberdeep: [
+    [2, 1],
+    [9, 1],
+    [1, 5],
+    [11, 5],
+    [4, 6],
+    [9, 7],
+  ],
+  tidewrack: [
+    [1, 1],
+    [9, 1],
+    [11, 2],
+    [2, 6],
+    [10, 6],
+    [6, 3],
+  ],
+};
 
-function startingSpot(rng: Rng): [number, number] {
-  return rng.pick(MEADOWMERE_SPOTS);
+function startingSpot(rng: Rng, zoneId: string): [number, number] {
+  const spots = ZONE_SPOTS[zoneId] ?? ZONE_SPOTS.meadowmere!;
+  return rng.pick(spots);
 }
 
-/** Create the two chimera rivals, each with its own seeded starter + placement. */
+// Three balanced starters per rival (not one/two) — the FIRST rival battle is
+// a fair ~3v3 rather than lopsided 1v3. Ids chosen so each rival's team leans
+// into their personality's favored family (Vesk = dragon-hoarder in
+// Emberdeep, Lune = breeder in Tidewrack) per the seed→family probe.
+const VESK_STARTER_IDS = ["rival-vesk-starter-c", "rival-vesk-starter-a", "rival-vesk-starter-b"];
+const LUNE_STARTER_IDS = ["rival-lune-starter-a", "rival-lune-starter-b", "rival-lune-starter-c"];
+
+/** Create the two chimera rivals, each with its own seeded starters + placement. */
 export function makeRivals(): PlacedRival[] {
   const vesk = createRival({
     id: "vesk",
     name: "Vesk",
     personality: HOARDER_PERSONALITY,
-    currentZone: "meadowmere",
+    currentZone: "emberdeep",
     seed: "vesk-rival-seed",
-    starters: [seedToken("rival-vesk-starter")],
+    starters: VESK_STARTER_IDS.map((id) => seedToken(id)),
     gold: 60,
   });
   const lune = createRival({
     id: "lune",
     name: "Lune",
     personality: BREEDER_PERSONALITY,
-    currentZone: "meadowmere",
+    currentZone: "tidewrack",
     seed: "lune-rival-seed",
-    starters: [seedToken("rival-lune-starter"), seedToken("rival-lune-starter-2")],
+    starters: LUNE_STARTER_IDS.map((id) => seedToken(id)),
     gold: 60,
   });
 
   const veskRng = createRng(hashStringToSeed("vesk-spot"));
   const luneRng = createRng(hashStringToSeed("lune-spot"));
-  const [vx, vy] = startingSpot(veskRng);
-  const [lx, ly] = startingSpot(luneRng);
+  const [vx, vy] = startingSpot(veskRng, "emberdeep");
+  const [lx, ly] = startingSpot(luneRng, "tidewrack");
 
   return [
-    { rival: vesk, placement: { zone: "meadowmere", x: vx, y: vy } },
-    { rival: lune, placement: { zone: "meadowmere", x: lx, y: ly } },
+    { rival: vesk, placement: { zone: "emberdeep", x: vx, y: vy } },
+    { rival: lune, placement: { zone: "tidewrack", x: lx, y: ly } },
   ];
 }
 
@@ -118,7 +161,7 @@ export function advanceRivals(
     }
     // Reseed the spot from (id, step) so repeat visits vary but stay deterministic.
     const rng = createRng(hashStringToSeed(`${next.id}:spot:${next.step}`));
-    const [x, y] = startingSpot(rng);
+    const [x, y] = startingSpot(rng, zoneId);
     return { rival: next, placement: { zone: zoneId, x, y } };
   });
 }
