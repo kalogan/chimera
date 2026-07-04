@@ -14,8 +14,10 @@
  * aquatic/slime) AND the one you fight on contact.
  */
 import { seedToken, type CreatureToken, type Family } from "game-kit/creature";
+import { hashStringToSeed, createRng } from "game-kit/prng";
 import type { RoamerSeed, TileKind, ZoneDescriptor } from "game-kit/world-runtime";
 import { chainIndexOf } from "./worldtree.js";
+import { LEVEL_CAP } from "./leveling.js";
 
 const CHAR_TO_TILE: Record<string, TileKind> = {
   "#": "wall",
@@ -83,6 +85,62 @@ function guardianPlus(chainIdx: number): number {
 }
 function guardianGeneration(chainIdx: number): number {
   return 2 + Math.floor(chainIdx / 2);
+}
+
+// ── enemy LEVELS (leveling.ts) — a SEPARATE axis from plus/generation above ──
+//
+// The leveling slice adds a second difficulty knob: every enemy (roamer,
+// encounter-pool mon, rival, Guardian) now also carries a LEVEL, fed straight
+// into `leveledStats` at battle-construction time (see game.ts). Levels are
+// tiered off the SAME `chainIndexOf` position the plus/generation ramp above
+// already uses, deliberately kept in a MODEST range (roamers ~3..45, Guardians
+// ~8..50 across the 8-world chain) — NOT stacked additively on top of the full
+// plus/generation ramp's own already-large multiplier, so the two axes don't
+// double-count into an unbeatable curve. See the report's balance note: the
+// plus/gen ramp still drives most of a Guardian's toughness; level growth
+// (leveling.ts's small per-family biases) is a gentler top-up, not a second
+// exponential.
+//
+// A little deterministic per-token variance (±2 levels for roamers, ±1 for a
+// Guardian) keeps same-tier enemies from reading as perfectly identical
+// without breaking determinism (seeded off the token's own id, mirroring
+// `creatureFromToken`'s own hashStringToSeed convention).
+function levelVariance(seedId: string, spread: number): number {
+  if (spread <= 0) return 0;
+  const rng = createRng(hashStringToSeed(`${seedId}:level`));
+  return rng.int(spread * 2 + 1) - spread;
+}
+
+function clampLevel(n: number): number {
+  return Math.max(1, Math.min(LEVEL_CAP, Math.round(n)));
+}
+
+/** A roamer/encounter-pool enemy's level for `family`'s chain position. */
+export function roamerLevel(family: Family, seedId: string): number {
+  const idx = Math.max(0, chainIndexOf(family));
+  const base = 3 + idx * 6;
+  return clampLevel(base + levelVariance(seedId, 2));
+}
+
+/** A Guardian's level for `family`'s chain position — a bit above its zone's
+ *  ordinary roamers, matching the plus/generation ramp's own "roamers climb
+ *  gently, the Guardian is the spike" shape. */
+export function guardianLevel(family: Family, seedId: string): number {
+  const idx = Math.max(0, chainIndexOf(family));
+  const base = 8 + idx * 6;
+  return clampLevel(base + levelVariance(seedId, 1));
+}
+
+/**
+ * The battle level for ANY enemy token — a wild roamer/encounter-pool mon, a
+ * rival's own party member, or a Guardian — the one call site game.ts needs
+ * when constructing a battle. `isGuardian` selects the (slightly higher)
+ * Guardian curve; everything else (including a rival's creatures, which are
+ * plain authored/bred tokens without a chain-tiered plus/generation of their
+ * own) uses the ordinary roamer curve keyed off the TOKEN'S OWN family so a
+ * rival's dragon-family mon still levels like a dragon-tier enemy would. */
+export function enemyLevelForToken(token: CreatureToken, isGuardian = false): number {
+  return isGuardian ? guardianLevel(token.family, token.id) : roamerLevel(token.family, token.id);
 }
 
 /** A roamer token for `family`, tiered to that family's own WORLD_ORDER
