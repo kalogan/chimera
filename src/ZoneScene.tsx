@@ -13,6 +13,7 @@ import { creatureFromToken, type GooberSpec } from "game-kit/creature";
 import type { ZoneState } from "game-kit/world-runtime";
 import { Goober } from "./Goober.js";
 import { ContactBlob, GooberEnv, ZONE_PALETTE } from "./env.js";
+import type { PlacedRival } from "./rivals.js";
 
 const TILE = 2.2;
 // Camera offset from the player: up/back chosen for ~52° downward (angled top-down
@@ -60,6 +61,31 @@ function makeGroundTexture(): THREE.CanvasTexture {
   return tex;
 }
 
+/**
+ * A slowly-spinning ring + colored disc under a rival goober — reads as
+ * "trainer, not wild" at a glance (distinct from the soft dark `ContactBlob`
+ * every wild roamer/player gets). Ground-hugging, so it doesn't fight the
+ * billboarded sprite above it for read clarity.
+ */
+function RivalMarker({ color = "#e97b4f" }: { color?: string }) {
+  const ring = useRef<THREE.Mesh>(null);
+  useFrame((_, dt) => {
+    if (ring.current) ring.current.rotation.z += dt * 0.6;
+  });
+  return (
+    <group position={[0, 0.03, 0]}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[GOOBER_SIZE * 1.9, 24]} />
+        <meshBasicMaterial color={color} transparent opacity={0.28} depthWrite={false} />
+      </mesh>
+      <mesh ref={ring} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.01, 0]}>
+        <ringGeometry args={[GOOBER_SIZE * 1.9, GOOBER_SIZE * 2.15, 28]} />
+        <meshBasicMaterial color={color} transparent opacity={0.85} depthWrite={false} />
+      </mesh>
+    </group>
+  );
+}
+
 /** A goober that tweens toward its tile with a little hop arc, billboarded. */
 function Actor({
   spec,
@@ -69,6 +95,7 @@ function Actor({
   h,
   seed,
   posOut,
+  rival,
 }: {
   spec: GooberSpec;
   tx: number;
@@ -77,6 +104,8 @@ function Actor({
   h: number;
   seed: number;
   posOut?: React.MutableRefObject<THREE.Vector3>;
+  /** When set, renders the "trainer, not wild" ring marker instead of a ContactBlob. */
+  rival?: boolean;
 }) {
   const grp = useRef<THREE.Group>(null);
   const cur = useRef<THREE.Vector3>(
@@ -94,7 +123,7 @@ function Actor({
   });
   return (
     <group ref={grp}>
-      <ContactBlob position={[0, 0, 0]} radius={GOOBER_SIZE * 1.6} />
+      {rival ? <RivalMarker /> : <ContactBlob position={[0, 0, 0]} radius={GOOBER_SIZE * 1.6} />}
       <Billboard>
         <Goober spec={spec} position={[0, 0, 0]} seed={seed} sizeScale={GOOBER_SIZE} />
       </Billboard>
@@ -183,7 +212,16 @@ function Terrain({ zone }: { zone: ZoneState }) {
   );
 }
 
-export function ZoneScene({ zone, playerSpec }: { zone: ZoneState; playerSpec: GooberSpec }) {
+export function ZoneScene({
+  zone,
+  playerSpec,
+  rivals = [],
+}: {
+  zone: ZoneState;
+  playerSpec: GooberSpec;
+  /** In-zone rivals to render as distinct "trainer" goobers (see `RivalMarker`). */
+  rivals?: PlacedRival[];
+}) {
   const playerPos = useRef(new THREE.Vector3());
   const { width: w, height: h } = zone.descriptor;
   const [spawnX, , spawnZ] = worldOf(zone.player.x, zone.player.y, w, h);
@@ -218,6 +256,22 @@ export function ZoneScene({ zone, playerSpec }: { zone: ZoneState; playerSpec: G
           seed={r.id.charCodeAt(r.id.length - 1) * 7}
         />
       ))}
+      {rivals.map(({ rival, placement }) => {
+        const lead = rival.roster.party[0];
+        if (!lead) return null;
+        return (
+          <Actor
+            key={rival.id}
+            spec={creatureFromToken(lead).gooberSpec}
+            tx={placement.x}
+            ty={placement.y}
+            w={w}
+            h={h}
+            seed={rival.id.charCodeAt(rival.id.length - 1) * 13 + 5}
+            rival
+          />
+        );
+      })}
     </Canvas>
   );
 }

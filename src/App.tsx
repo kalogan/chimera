@@ -18,6 +18,7 @@ import {
   enterZone,
   zoneStep,
   startEncounterWith,
+  startRivalBattle,
   returnToZone,
   exitZone,
   activeActor,
@@ -187,6 +188,15 @@ function ZoneScreen({ game, setGame, onPause, paused }: ScreenProps & { onPause:
       busy.current = true;
       audio().playCry(creatureFromToken(pending.token).crySpec);
       window.setTimeout(() => setGame(startEncounterWith(g2, pending.token, pending.roamerId)), 340);
+    } else if (pending?.kind === "rival") {
+      busy.current = true;
+      audio().playUi("confirm");
+      const found = g2.rivals.find((p) => p.rival.id === pending.rivalId);
+      const lead = found?.rival.roster.party[0];
+      if (lead) audio().playCry(creatureFromToken(lead).crySpec);
+      window.setTimeout(() => {
+        if (found) setGame(startRivalBattle(g2, found.rival));
+      }, 340);
     } else if (pending?.kind === "portal") {
       busy.current = true;
       audio().playUi("confirm");
@@ -207,13 +217,18 @@ function ZoneScreen({ game, setGame, onPause, paused }: ScreenProps & { onPause:
 
   if (!zone || !playerSpec) return null;
 
+  const inZoneRivals = useMemo(
+    () => game.rivals.filter((p) => p.placement.zone === zone?.descriptor.id),
+    [game.rivals, zone?.descriptor.id],
+  );
+
   return (
     <>
-      <ZoneScene zone={zone} playerSpec={playerSpec} />
+      <ZoneScene zone={zone} playerSpec={playerSpec} rivals={inZoneRivals} />
       <div className="overlay">
         <HudBar
           title="Meadowmere"
-          subtitle="Wild goobers roam — walk into one to meet it."
+          subtitle="Wild goobers roam, and a rival or two are about — walk into one to meet it."
           dexText={`Dex ${dexTotal(game)} · Party ${game.roster.party.length}/3`}
           onPause={onPause}
         />
@@ -268,6 +283,7 @@ function BattleScreen({ game, setGame, onPause }: ScreenProps & { onPause: () =>
   if (!b) return null;
   const actor = activeActor(b);
   const placed = battlePlaced(b);
+  const rival = game.rivalBattleId ? game.rivals.find((p) => p.rival.id === game.rivalBattleId) : undefined;
 
   const doAction = (act: Parameters<typeof stepBattle>[1]) => {
     audio().playUi("select");
@@ -282,7 +298,8 @@ function BattleScreen({ game, setGame, onPause }: ScreenProps & { onPause: () =>
       <GooberStage placed={placed} cameraPos={[3, 7, 21]} fov={32} bg="#a9d9c0" ground="#cfe6a8" />
       <div className="overlay">
         <HudBar
-          title="Encounter"
+          title={rival ? `Rival battle · ${rival.rival.name}` : "Encounter"}
+          subtitle={rival ? `${rival.rival.name} challenges you with the team their journey has built.` : undefined}
           dexText={game.outcome ? game.outcome.toUpperCase() : b.phase}
           onPause={onPause}
         />
