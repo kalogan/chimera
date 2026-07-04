@@ -20,6 +20,7 @@ export * from './touch/index.js';
 export * from './grid-input/index.js';
 export * from './meta/index.js';
 export * from './economy/index.js';
+export * from './quest/index.js';
 export * from './assets/index.js';
 export * from './sprite/index.js';
 export * from './billboard/index.js';
