@@ -12,6 +12,7 @@ import { audio, resumeAudio } from "./audio.js";
 import { playBattleEvents } from "./battle-audio.js";
 import { Splash } from "./shell/splash.js";
 import { PauseOverlay } from "./shell/pause.js";
+import { FieldMenu } from "./field-menu.js";
 import { SettingsPanel } from "./shell/settings.js";
 import { HudBar } from "./shell/hud.js";
 import { itemDef, shopFor, SELL_FRACTION } from "game-kit/economy";
@@ -205,15 +206,28 @@ export function App() {
       )}
       {game.screen === "aldercradle" && <AldercradleScreen game={game} setGame={setGame} />}
       {game.screen === "finale" && <FinaleScreen game={game} setGame={setGame} />}
-      {paused && (
-        <PauseOverlay
-          onResume={() => setPaused(false)}
+      {paused && (game.screen === "town" || game.screen === "zone") ? (
+        <FieldMenu
+          game={game}
+          setGame={setGame}
+          onClose={() => setPaused(false)}
           onReturnToTitle={() => {
             setPaused(false);
             setGame(newGame());
             setShellPhase("splash");
           }}
         />
+      ) : (
+        paused && (
+          <PauseOverlay
+            onResume={() => setPaused(false)}
+            onReturnToTitle={() => {
+              setPaused(false);
+              setGame(newGame());
+              setShellPhase("splash");
+            }}
+          />
+        )
       )}
     </div>
   );

@@ -1,0 +1,124 @@
+/* field-menu — CHIMERA's DQM-style field overlay: warm parchment chrome
+   (matches .panel/.act/--panel/--warm/--warm-deep/--parchment/--ink/--bond in
+   styles.css) with a retro NOD — chunky double borders + a monospace stat
+   readout. Mobile-first (portrait), safe-area aware, scrollable overflow. */
+
+.fieldmenu-dock {
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(43, 36, 64, 0.5); pointer-events: auto; z-index: 55;
+  padding: 16px 12px calc(16px + env(safe-area-inset-bottom, 0px));
+}
+
+/* Retro-nod monospace stat readout — a pixel-ish tabular-numeral stack, no
+   webfont import (system monospace only). */
+.fieldmenu-mono {
+  font-family: "Courier New", ui-monospace, "Cascadia Mono", "Consolas", monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Gold box — small, top corner, DQM-style. */
+.fieldmenu-gold {
+  position: absolute; top: calc(10px + env(safe-area-inset-top, 0px)); left: 10px;
+  background: var(--parchment); border: 3px double var(--warm-deep);
+  border-radius: 8px; padding: 4px 12px; font-weight: 800; font-size: 14px;
+  color: var(--warm-deep); box-shadow: var(--shadow); z-index: 2;
+}
+
+/* The chunky framed panel — double border is the retro nod, but the palette
+   stays warm/parchment (not a pixel reskin). */
+.fieldmenu-panel {
+  position: relative; width: min(420px, 94vw); max-height: 88vh;
+  overflow-y: auto; background: var(--panel);
+  border: 4px double var(--warm-deep); border-radius: 14px;
+  padding: 16px 18px calc(16px + env(safe-area-inset-bottom, 0px));
+  box-shadow: var(--shadow);
+}
+.fieldmenu-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.fieldmenu-head h2 { margin: 0; letter-spacing: 0.04em; }
+
+/* Command grid — DQM-style chunky parchment buttons, 2 columns on phones. */
+.fieldmenu-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px;
+}
+.fieldmenu-cmd {
+  min-height: 48px; padding: 10px 12px; font-size: 14px; font-weight: 800;
+  color: var(--ink); background: var(--parchment);
+  border: 3px solid var(--warm-deep); border-radius: 10px;
+  box-shadow: var(--shadow); cursor: pointer;
+  transition: transform 0.08s ease, background 0.12s ease;
+}
+.fieldmenu-cmd:hover { background: var(--warm); transform: translateY(-1px); }
+.fieldmenu-cmd:disabled { opacity: 0.4; cursor: default; transform: none; }
+.fieldmenu-cmd-primary { background: var(--warm); }
+.fieldmenu-cmd-warn { border-color: #b25a4a; }
+
+/* Party strip — compact always-visible rows: name, rank badge, HP/MP mono. */
+.fieldmenu-partystrip {
+  display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px;
+}
+.fieldmenu-row {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  background: var(--parchment-2); border: 2px solid var(--warm-deep);
+  border-radius: 10px; padding: 8px 10px; cursor: pointer; text-align: left;
+  font: inherit; color: inherit;
+  transition: transform 0.08s ease, background 0.12s ease;
+}
+.fieldmenu-row:hover { background: var(--warm); transform: translateY(-1px); }
+.fieldmenu-row-name { font-weight: 700; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fieldmenu-row-stats { display: flex; gap: 10px; font-size: 12px; flex-shrink: 0; }
+.fieldmenu-hp { color: var(--bond); }
+.fieldmenu-mp { color: #4b82bb; }
+.fieldmenu-hint { margin-top: 4px; text-align: center; }
+
+/* Rank/element badges — chunky bordered pills, reusing creature-dex.ts's
+   color maps so they match the Dex's own badges. */
+.fieldmenu-rankbadge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 22px; padding: 1px 6px; font-size: 12px; font-weight: 800;
+  border: 2px solid; border-radius: 6px; background: #fff8;
+}
+.fieldmenu-elembadge {
+  font-size: 10.5px; font-weight: 800; text-transform: capitalize;
+  padding: 2px 8px; border-radius: 999px; border: 1.5px solid; background: #fff6;
+}
+
+/* Status page (drill-down) */
+.fieldmenu-status-badges { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.fieldmenu-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.fieldmenu-tab {
+  padding: 5px 10px; font-size: 12px; font-weight: 700; cursor: pointer;
+  background: var(--parchment-2); border: 2px solid var(--warm-deep); border-radius: 999px;
+  color: var(--ink);
+}
+.fieldmenu-tab.on { background: var(--warm); }
+
+.fieldmenu-section-title {
+  font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.65;
+  border-bottom: 1px solid var(--warm-deep); padding-bottom: 4px; margin: 12px 0 6px;
+}
+.fieldmenu-stat-row { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; font-size: 12px; }
+.fieldmenu-stat-label { width: 34px; flex-shrink: 0; font-weight: 800; opacity: 0.75; }
+.fieldmenu-stat-bar { flex: 1; height: 8px; }
+.fieldmenu-stat-value { width: 32px; text-align: right; opacity: 0.8; }
+
+.fieldmenu-skills { display: flex; flex-direction: column; gap: 4px; }
+.fieldmenu-skill {
+  display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px;
+  background: var(--parchment-2); border-radius: 8px; padding: 5px 10px;
+}
+
+/* Items bag */
+.fieldmenu-itemlist { display: flex; flex-direction: column; gap: 8px; }
+.fieldmenu-item-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: var(--parchment-2); border-radius: 10px; padding: 8px 12px;
+}
+.fieldmenu-item-info { min-width: 0; }
+.fieldmenu-item-name { font-weight: 700; color: var(--warm-deep); }
+.fieldmenu-item-count { flex-shrink: 0; font-size: 13px; opacity: 0.85; }
+
+@media (max-width: 420px) {
+  .fieldmenu-grid { grid-template-columns: 1fr 1fr; gap: 6px; }
+  .fieldmenu-cmd { font-size: 12.5px; padding: 9px 8px; }
+  .fieldmenu-panel { padding: 12px 12px calc(12px + env(safe-area-inset-bottom, 0px)); }
+}
