@@ -32,11 +32,13 @@ export function Goober({
   position,
   seed = 0,
   facing = 0,
+  fainted = false,
 }: {
   spec: GooberSpec;
   position: [number, number, number];
   seed?: number;
   facing?: number;
+  fainted?: boolean;
 }) {
   const group = useRef<THREE.Group>(null);
   const eyeGroup = useRef<THREE.Group>(null);
@@ -62,20 +64,32 @@ export function Goober({
   }, [spec]);
 
   // Gentle breathe/bob + occasional blink. Deterministic per-creature phase offset.
+  // Fainted: tip over, sink, and hold still (creatures faint — never die — so keep
+  // it tender, a gentle slump rather than a violent fall).
   useFrame((state) => {
     const t = state.clock.elapsedTime;
     const ph = (seed % 100) * 0.618;
     if (group.current) {
-      const breathe = 1 + Math.sin(t * 1.6 + ph) * 0.035;
-      group.current.scale.setScalar(spec.scale * WORLD * breathe);
-      group.current.position.y = position[1] + Math.sin(t * 1.1 + ph) * 0.08;
-      group.current.rotation.y = facing + Math.sin(t * 0.5 + ph) * 0.06;
+      if (fainted) {
+        group.current.scale.setScalar(spec.scale * WORLD * 0.9);
+        group.current.position.y = position[1] - 0.5;
+        group.current.rotation.set(0, facing, 1.15);
+      } else {
+        const breathe = 1 + Math.sin(t * 1.6 + ph) * 0.035;
+        group.current.scale.setScalar(spec.scale * WORLD * breathe);
+        group.current.position.y = position[1] + Math.sin(t * 1.1 + ph) * 0.08;
+        group.current.rotation.set(0, facing + Math.sin(t * 0.5 + ph) * 0.06, 0);
+      }
     }
     if (eyeGroup.current) {
-      // Blink: a brief eye-white squash on a slow, offset cycle.
-      const cycle = (t * 0.9 + ph) % 4;
-      const blink = cycle > 3.85 ? Math.max(0.08, 1 - (cycle - 3.85) * 13) : 1;
-      eyeGroup.current.scale.y = blink;
+      if (fainted) {
+        eyeGroup.current.scale.y = 0.12; // eyes closed
+      } else {
+        // Blink: a brief eye-white squash on a slow, offset cycle.
+        const cycle = (t * 0.9 + ph) % 4;
+        const blink = cycle > 3.85 ? Math.max(0.08, 1 - (cycle - 3.85) * 13) : 1;
+        eyeGroup.current.scale.y = blink;
+      }
     }
   });
 

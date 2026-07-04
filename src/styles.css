@@ -1,0 +1,83 @@
+/* CHIMERA — placeholder UI. Warm, cozy, wistful (DQM charm + Ghibli tenderness).
+   Form over polish: legible, functional, a little tender. */
+:root {
+  --ink: #2b2440;
+  --parchment: #f7efe2;
+  --parchment-2: #efe3cf;
+  --warm: #e8a84c;
+  --warm-deep: #c9762e;
+  --bond: #6fb98f;
+  --sky: #9ed0ee;
+  --panel: rgba(247, 239, 226, 0.92);
+  --shadow: 0 6px 22px rgba(43, 36, 64, 0.22);
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; height: 100%; width: 100%; background: var(--sky); color: var(--ink); }
+.stage { position: fixed; inset: 0; }
+.overlay { position: fixed; inset: 0; pointer-events: none; }
+.overlay > * { pointer-events: auto; }
+
+/* top banner */
+.banner {
+  position: absolute; top: 0; left: 0; right: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 16px; background: linear-gradient(var(--panel), transparent);
+}
+.title { font-weight: 800; letter-spacing: 0.08em; font-size: 18px; text-shadow: 0 1px 0 #fff8; }
+.subtitle { font-size: 12px; opacity: 0.7; }
+.dex { font-size: 13px; background: var(--panel); border-radius: 999px; padding: 4px 12px; box-shadow: var(--shadow); }
+
+/* bottom action bar */
+.actionbar {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;
+  padding: 14px; background: linear-gradient(transparent, var(--panel));
+}
+button.act {
+  min-width: 44px; min-height: 44px; padding: 10px 18px;
+  font-size: 15px; font-weight: 700; color: var(--ink);
+  background: var(--parchment); border: 2px solid var(--warm-deep);
+  border-radius: 12px; box-shadow: var(--shadow); cursor: pointer;
+  transition: transform 0.08s ease, background 0.12s ease;
+}
+button.act:hover { background: var(--warm); transform: translateY(-1px); }
+button.act:disabled { opacity: 0.4; cursor: default; transform: none; }
+button.act.primary { background: var(--warm); border-color: var(--warm-deep); }
+button.act.bond { border-color: var(--bond); }
+
+/* combatant cards (HP/MP) */
+.cards { position: absolute; display: flex; gap: 8px; padding: 8px; flex-wrap: wrap; }
+.cards.enemy { top: 54px; right: 8px; justify-content: flex-end; }
+.cards.player { bottom: 84px; left: 8px; }
+.card {
+  background: var(--panel); border-radius: 10px; padding: 6px 10px; min-width: 132px;
+  box-shadow: var(--shadow); font-size: 12px;
+}
+.card.fainted { opacity: 0.45; filter: grayscale(0.7); }
+.card .nm { font-weight: 700; display: flex; justify-content: space-between; }
+.card .rank { color: var(--warm-deep); font-weight: 800; }
+.bar { height: 7px; border-radius: 4px; background: #0002; margin-top: 4px; overflow: hidden; }
+.bar > i { display: block; height: 100%; border-radius: 4px; }
+.bar.hp > i { background: linear-gradient(90deg, #6fb98f, #4e9a70); }
+.bar.mp > i { background: linear-gradient(90deg, #6aa6d8, #4b82bb); }
+
+/* centered modal (cradle / newborn reveal) */
+.modal { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; }
+.panel {
+  margin-top: 60px; background: var(--panel); border-radius: 16px; padding: 18px 24px;
+  box-shadow: var(--shadow); text-align: center; max-width: 90vw;
+}
+.panel h2 { margin: 0 0 6px; }
+.reveal-name { font-size: 26px; font-weight: 800; color: var(--warm-deep); }
+.stat-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; font-size: 13px; margin-top: 8px; }
+.stat-row span { background: var(--parchment-2); border-radius: 8px; padding: 3px 8px; }
+.log {
+  position: absolute; left: 8px; bottom: 150px; max-width: 46vw;
+  background: var(--panel); border-radius: 10px; padding: 8px 12px; font-size: 12px;
+  box-shadow: var(--shadow); max-height: 30vh; overflow: hidden;
+}
+.log div { opacity: 0.9; }
+.log div:last-child { font-weight: 700; }
+.pick { outline: 3px solid var(--warm); border-radius: 12px; }
+.hint { font-size: 13px; opacity: 0.75; margin-top: 6px; }
