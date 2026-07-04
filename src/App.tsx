@@ -18,7 +18,8 @@ import { FieldMenu } from "./field-menu.js";
 import { SettingsPanel } from "./shell/settings.js";
 import { HudBar } from "./shell/hud.js";
 import { itemDef, shopFor, SELL_FRACTION } from "game-kit/economy";
-import { ZONE_LABELS, GUARDIAN_TITLE } from "./zone.js";
+import { ZONE_LABELS, GUARDIAN_TITLE, enemyLevelForToken } from "./zone.js";
+import { levelOf } from "./leveling.js";
 import { hasSave, loadGame, saveGame } from "./save.js";
 import { TownScene } from "./town-scene.js";
 import { TownDialogue } from "./town-dialogue.js";
@@ -851,11 +852,12 @@ function Bar({ kind, cur, max }: { kind: "hp" | "mp"; cur: number; max: number }
     </div>
   );
 }
-function CombatantCard({ c, active }: { c: Combatant; active: boolean }) {
+function CombatantCard({ c, active, level }: { c: Combatant; active: boolean; level?: number }) {
   return (
     <div className={`card ${c.alive ? "" : "fainted"} ${active ? "pick" : ""}`}>
       <div className="nm">
         <span>{c.name}</span>
+        {level !== undefined && <span className="hint">Lv {level}</span>}
         <span className="rank">{active ? "▶" : ""}</span>
       </div>
       <Bar kind="hp" cur={c.currentHp} max={c.maxHp} />
@@ -991,17 +993,42 @@ function BattleScreen({ game, setGame, onPause }: ScreenProps & { onPause: () =>
           onMenu={onPause}
         />
         <div className="cards enemy">
-          {b.enemyTeam.map((c) => <CombatantCard key={c.id} c={c} active={actor?.id === c.id} />)}
+          {b.enemyTeam.map((c) => (
+            <CombatantCard
+              key={c.id}
+              c={c}
+              active={actor?.id === c.id}
+              level={enemyLevelForToken(c.token, !!guardianTitle)}
+            />
+          ))}
         </div>
         <div className="battle-bottom">
           {game.outcome === "guardian-win" && (
             <div className="battle-victory">{guardianTitle} falls — the world's Heartseed is recovered!</div>
           )}
+          {game.lastLevelUps.length > 0 && (
+            <div className="battle-victory">
+              {game.lastLevelUps
+                .map((up) => {
+                  const t = game.roster.party.find((tk) => tk.id === up.tokenId);
+                  const name = t ? creatureFromToken(t).name : up.tokenId;
+                  return `${name} grew to Lv ${up.to}!`;
+                })
+                .join(" · ")}
+            </div>
+          )}
           <div className="log">
             {game.log.slice(-3).map((l, i) => <div key={i}>{l}</div>)}
           </div>
           <div className="cards player">
-            {b.playerTeam.map((c) => <CombatantCard key={c.id} c={c} active={actor?.id === c.id} />)}
+            {b.playerTeam.map((c) => (
+              <CombatantCard
+                key={c.id}
+                c={c}
+                active={actor?.id === c.id}
+                level={levelOf(game.leveling, c.token.id)}
+              />
+            ))}
           </div>
           <div className="battle-commands">
             {game.outcome ? (

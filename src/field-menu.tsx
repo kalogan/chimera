@@ -24,7 +24,8 @@ import { audio } from "./audio.js";
 import { saveGame } from "./save.js";
 import { SettingsPanel } from "./shell/settings.js";
 import { ELEMENT_COLOR, RANK_RARITY, RARITY_COLOR, FAMILY_COLOR } from "./creature-dex.js";
-import { partyCreatures, type GameState } from "./game.js";
+import { partyCreaturesLeveled, type GameState } from "./game.js";
+import { levelOf, expForLevel, expOf, LEVEL_CAP, type LevelingState } from "./leveling.js";
 import "./field-menu.css";
 
 export interface FieldMenuProps {
@@ -49,7 +50,7 @@ export function FieldMenu({ game, setGame: _setGame, onClose, onReturnToTitle }:
   const [statusId, setStatusId] = useState<string | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
 
-  const party = partyCreatures(game);
+  const party = partyCreaturesLeveled(game);
 
   const backToMenu = () => { setView("menu"); setStatusId(null); };
 
@@ -117,6 +118,7 @@ export function FieldMenu({ game, setGame: _setGame, onClose, onReturnToTitle }:
         <StatusPage
           creature={statusCreature}
           party={party}
+          leveling={game.leveling}
           onPick={openStatus}
           onBack={backToMenu}
         />
@@ -183,6 +185,7 @@ function FieldMenuHome({
         {party.map((c) => (
           <button key={c.token.id} className="fieldmenu-row" onClick={() => onOpenRow(c.token.id)}>
             <span className="fieldmenu-row-name">{c.name}</span>
+            <span className="fieldmenu-mono">Lv {levelOf(game.leveling, c.token.id)}</span>
             <RankBadge rank={c.rank} />
             <span className="fieldmenu-row-stats">
               <span className="fieldmenu-mono fieldmenu-hp">HP {c.stats.hp}</span>
@@ -227,11 +230,13 @@ const STAT_ROWS: { key: keyof Creature["stats"]; label: string }[] = [
 function StatusPage({
   creature,
   party,
+  leveling,
   onPick,
   onBack,
 }: {
   creature: Creature;
   party: Creature[];
+  leveling: LevelingState;
   onPick: (tokenId: string) => void;
   onBack: () => void;
 }) {
@@ -244,6 +249,12 @@ function StatusPage({
   const parentNames = (parentIds ?? []).map(
     (id) => party.find((p) => p.token.id === id)?.name ?? "a lost companion",
   );
+
+  const level = levelOf(leveling, creature.token.id);
+  const capped = level >= LEVEL_CAP;
+  const exp = expOf(leveling, creature.token.id);
+  const next = expForLevel(level + 1);
+  const xpPct = capped || next <= 0 ? 100 : Math.max(0, Math.min(100, (exp / next) * 100));
 
   return (
     <div className="fieldmenu-panel fieldmenu-status">
@@ -271,6 +282,17 @@ function StatusPage({
         <span className="dex-badge2" style={{ background: familyColor }}>{creature.family}</span>
         <RankBadge rank={creature.rank} />
         {creature.elements.map((e) => <ElementBadge key={e} element={e} />)}
+      </div>
+
+      <div className="fieldmenu-section-title">Level</div>
+      <div className="fieldmenu-stat-row">
+        <div className="fieldmenu-stat-label fieldmenu-mono">Lv {level}</div>
+        <div className="bar fieldmenu-stat-bar">
+          <i style={{ width: `${xpPct}%` }} />
+        </div>
+        <div className="fieldmenu-mono fieldmenu-stat-value">
+          {capped ? "MAX" : `${exp}/${next}`}
+        </div>
       </div>
 
       <div className="fieldmenu-section-title">Stats</div>
