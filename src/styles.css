@@ -13,7 +13,11 @@
   font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
 }
 * { box-sizing: border-box; }
-html, body, #root { margin: 0; height: 100%; width: 100%; background: var(--sky); color: var(--ink); overflow-x: hidden; }
+/* Warm parchment base backdrop — every full-screen scene covers it, so it only
+   shows in the gaps BETWEEN phases; keeping it parchment (matching the splash's
+   own #f0dcb8) makes the studio -> splash hand-off dissolve smoothly instead of
+   flashing a contrasting colour. */
+html, body, #root { margin: 0; height: 100%; width: 100%; background: #f0dcb8; color: var(--ink); overflow-x: hidden; }
 .stage { position: fixed; inset: 0; }
 .overlay { position: fixed; inset: 0; pointer-events: none; }
 .overlay > * { pointer-events: auto; }

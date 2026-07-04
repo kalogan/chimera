@@ -33,6 +33,15 @@ export function Splash({ onNewGame, onContinue, onSettings }: SplashProps) {
   const [leaving, setLeaving] = useState(false);
   const committed = useRef(false);
 
+  // Fade the splash IN on mount so the studio -> splash hand-off reads as a slow
+  // dissolve (both fade over the shared parchment backdrop; see studio-logo.css),
+  // not an abrupt cut. A tick after mount so the initial opacity:0 paints first.
+  const [entered, setEntered] = useState(false);
+  useEffect(() => {
+    const id = window.setTimeout(() => setEntered(true), 30);
+    return () => window.clearTimeout(id);
+  }, []);
+
   const placed: Placed[] = (() => {
     try {
       const spec = creatureFromToken(seedToken(SPLASH_TOKEN_ID)).gooberSpec;
@@ -63,7 +72,11 @@ export function Splash({ onNewGame, onContinue, onSettings }: SplashProps) {
   };
 
   return (
-    <div className={`splash-wrap ${leaving ? "leaving" : ""}`} onPointerDown={() => void resumeAudio()}>
+    <div
+      className="splash-wrap"
+      style={{ opacity: leaving ? 0 : entered ? 1 : 0, transition: `opacity ${leaving ? 240 : 800}ms ease` }}
+      onPointerDown={() => void resumeAudio()}
+    >
       <GooberStage placed={placed} cameraPos={[0, 4.5, 13]} fov={26} bg="#f0dcb8" ground="#cfe6a8" />
       <div className="overlay splash-overlay">
         <div className="splash-titleblock">

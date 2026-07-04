@@ -1,5 +1,9 @@
 /* WOVENWILD studio ident — SVG threads weave into a goober, wordmark warms in.
    All CSS keyframes (run even in a backgrounded tab); wall-clock timer hands off. */
+
+/* The shared parchment backdrop that makes the studio -> splash hand-off
+   dissolve (studio fades out, splash fades in, both over the same parchment)
+   lives on `html, body, #root` in styles.css. */
 .studio-wrap {
   position: fixed;
   inset: 0;
