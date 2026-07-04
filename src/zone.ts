@@ -13,8 +13,8 @@
  * zone is flavour-appropriate (Emberdeep = dragon/golem, Tidewrack =
  * aquatic/slime) AND the one you fight on contact.
  */
-import { seedToken } from "game-kit/creature";
-import type { TileKind, ZoneDescriptor } from "game-kit/world-runtime";
+import { seedToken, type CreatureToken, type Family } from "game-kit/creature";
+import type { RoamerSeed, TileKind, ZoneDescriptor } from "game-kit/world-runtime";
 
 const CHAR_TO_TILE: Record<string, TileKind> = {
   "#": "wall",
@@ -28,6 +28,50 @@ const CHAR_TO_TILE: Record<string, TileKind> = {
 
 function compileTiles(map: readonly string[]): TileKind[] {
   return map.flatMap((row) => [...row].map((ch) => CHAR_TO_TILE[ch] ?? "floor"));
+}
+
+// ── Guardians (Aldercradle progression) ─────────────────────────────────────
+//
+// Each of the 3 built worlds' Guardian stands at a fixed FAR tile in its zone
+// (idle — it never wanders, so it's always exactly where the player expects a
+// boss to be) and is modeled as an ordinary `RoamerSeed`/`RoamerState`: the
+// SAME collision/encounter machinery every wild roamer already uses (walking
+// onto its tile fires a normal `ZoneEvent: 'encounter'`). `GUARDIAN_ROAMER_ID`
+// is the fixed id every zone's Guardian roamer uses, so game.ts can recognize
+// "this encounter is the Guardian" by id alone rather than a new ZoneEvent
+// variant (keeps `world-runtime` itself untouched).
+//
+// The Guardian's token is constructed DIRECTLY (not via `seedToken`, whose
+// family is a hash of the id and can't be pinned) so it's guaranteed
+// family-correct for its world, with `plus`/`generation` pushed high enough
+// to reliably land rank S — a clearly tougher, elevated champion rather than
+// a reskinned wild goober. `creatureFromToken`'s own procedural name (e.g.
+// "Gnaranling") is kept as the creature's true name; the WARM, READABLE
+// title ("Meadowmere's Guardian") the player sees in the log/HUD is a
+// display-only string from `GUARDIAN_TITLE`, not the token's name.
+export const GUARDIAN_ROAMER_ID = "guardian";
+
+function guardianToken(family: Family, seedId: string): CreatureToken {
+  return { id: seedId, family, plus: 20, generation: 5, parents: null };
+}
+
+/** zoneId -> the Guardian's token. */
+export const GUARDIAN_TOKEN: Record<string, CreatureToken> = {
+  meadowmere: guardianToken("beast", "guardian-meadowmere-beast"),
+  emberdeep: guardianToken("dragon", "guardian-emberdeep-dragon"),
+  tidewrack: guardianToken("aquatic", "guardian-tidewrack-aquatic"),
+};
+
+/** zoneId -> the warm display title shown in the log/HUD (not the creature's
+ *  own procedural name — see the note above). */
+export const GUARDIAN_TITLE: Record<string, string> = {
+  meadowmere: "Meadowmere's Guardian",
+  emberdeep: "Emberdeep's Guardian",
+  tidewrack: "Tidewrack's Guardian",
+};
+
+function guardianRoamer(zoneId: string, at: [number, number]): RoamerSeed {
+  return { id: GUARDIAN_ROAMER_ID, token: GUARDIAN_TOKEN[zoneId]!, at, wander: "idle" };
 }
 
 // ── Meadowmere — verdant overworld hub, the starting zone ──────────────────────
@@ -68,6 +112,7 @@ export const MEADOWMERE: ZoneDescriptor = {
     { id: "roam-b", token: seedToken("w3"), at: [9, 1], wander: "random" },
     { id: "roam-c", token: seedToken("w70"), at: [7, 6], wander: "random" },
     { id: "roam-d", token: seedToken("w56"), at: [10, 3], wander: "seek" },
+    guardianRoamer("meadowmere", [11, 6]),
   ],
 };
 
@@ -109,6 +154,7 @@ export const EMBERDEEP: ZoneDescriptor = {
     { id: "roam-e2", token: seedToken("w137"), at: [9, 2], wander: "random" },
     { id: "roam-e3", token: seedToken("w146"), at: [2, 6], wander: "random" },
     { id: "roam-e4", token: seedToken("w128"), at: [10, 6], wander: "seek" },
+    guardianRoamer("emberdeep", [6, 7]),
   ],
 };
 
@@ -150,6 +196,7 @@ export const TIDEWRACK: ZoneDescriptor = {
     { id: "roam-t2", token: seedToken("w120"), at: [9, 2], wander: "random" },
     { id: "roam-t3", token: seedToken("w108"), at: [2, 6], wander: "random" },
     { id: "roam-t4", token: seedToken("w127"), at: [10, 5], wander: "seek" },
+    guardianRoamer("tidewrack", [9, 7]),
   ],
 };
 
