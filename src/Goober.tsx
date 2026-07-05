@@ -123,6 +123,7 @@ export function Goober({
   facing = 0,
   fainted = false,
   sizeScale = 1,
+  eyeBulge = 0,
 }: {
   spec: GooberSpec;
   position: [number, number, number];
@@ -131,6 +132,11 @@ export function Goober({
   fainted?: boolean;
   /** World-size multiplier — overworld goobers are smaller than battle-stage ones. */
   sizeScale?: number;
+  /** Push the eyes forward (+Z) and up by this many geometry units so they
+   *  protrude from the body and read from a STEEP top-down camera (the overworld
+   *  looks down onto the goober's dome, burying deep-set eyes). Battle/Dex/splash
+   *  are near head-on and leave this 0 (eyes stay flush in the face). */
+  eyeBulge?: number;
 }) {
   const base = spec.scale * WORLD * sizeScale;
   const group = useRef<THREE.Group>(null);
@@ -227,7 +233,7 @@ export function Goober({
     >
       <primitive object={mc} />
       {rim && <mesh geometry={mc.geometry} material={rimMat} />}
-      <group ref={eyeGroup}>
+      <group ref={eyeGroup} position={[0, eyeBulge * 0.5, eyeBulge]}>
         {spec.eyes.map((e, i) => {
           const g = toGeom(e.x, e.y, e.z);
           const r = e.r * 2 * K;

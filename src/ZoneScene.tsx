@@ -42,6 +42,16 @@ const CAM_FOV = 40;
 const HOP_H = 0.42;
 // Overworld goobers are tile-sized, much smaller than the battle-stage lineup.
 const GOOBER_SIZE = 0.42;
+// The angled top-down camera (~52° above horizontal) looks down onto a goober's
+// top dome, so its front-facing (+Z, horizontal) eyes hide below the bulge. Tip
+// the whole goober's face UP toward the camera by this much (~28°) so the eyes
+// read from the overworld angle. Applied in the goober's LOCAL frame (under the
+// facing yaw), so the face always tilts "up along its heading" regardless of
+// which way it's walking. Battle/Dex/splash cameras are near head-on and need none.
+const FACE_PITCH = 0.4;
+// Push overworld goober eyes forward+up so they protrude from the body and read
+// from the steep top-down camera (deep-set eyes otherwise hide under the dome).
+const EYE_BULGE = 0.5;
 
 function worldOf(x: number, y: number, w: number, h: number): [number, number, number] {
   return [(x - (w - 1) / 2) * TILE, 0, (y - (h - 1) / 2) * TILE];
@@ -294,10 +304,14 @@ function Actor({
     <group ref={grp}>
       {rival ? <RivalMarker /> : <ContactBlob position={[0, 0, 0]} radius={GOOBER_SIZE * 1.6} />}
       {directional ? (
-        <Goober spec={spec} position={[0, lift, 0]} seed={seed} sizeScale={GOOBER_SIZE} />
+        <group position={[0, lift, 0]} rotation={[-FACE_PITCH, 0, 0]}>
+          <Goober spec={spec} position={[0, 0, 0]} seed={seed} sizeScale={GOOBER_SIZE} eyeBulge={EYE_BULGE} />
+        </group>
       ) : (
         <Billboard>
-          <Goober spec={spec} position={[0, lift, 0]} seed={seed} sizeScale={GOOBER_SIZE} />
+          <group position={[0, lift, 0]} rotation={[-FACE_PITCH, 0, 0]}>
+            <Goober spec={spec} position={[0, 0, 0]} seed={seed} sizeScale={GOOBER_SIZE} eyeBulge={EYE_BULGE} />
+          </group>
         </Billboard>
       )}
     </group>

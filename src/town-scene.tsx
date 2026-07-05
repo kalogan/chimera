@@ -59,6 +59,10 @@ const CAM_BACK = 14;
 const CAM_FOV = 40;
 const HOP_H = 0.42;
 const GOOBER_SIZE = 0.42;
+// Tip the goober's face up toward the ~52° top-down camera so its front-facing
+// eyes clear the top dome (see ZoneScene's FACE_PITCH for the full rationale).
+const FACE_PITCH = 0.4;
+const EYE_BULGE = 0.5;
 /** A player standing on this tile, or one cardinal step away, can talk to a
  *  villager occupying that tile (adjacency, not exact overlap). */
 const APPROACH_RADIUS = 1;
@@ -194,10 +198,14 @@ function Actor({
         <ContactBlob position={[0, 0, 0]} radius={GOOBER_SIZE * 1.6} />
       )}
       {directional ? (
-        <Goober spec={spec} position={[0, lift, 0]} seed={seed} sizeScale={GOOBER_SIZE} />
+        <group position={[0, lift, 0]} rotation={[-FACE_PITCH, 0, 0]}>
+          <Goober spec={spec} position={[0, 0, 0]} seed={seed} sizeScale={GOOBER_SIZE} eyeBulge={EYE_BULGE} />
+        </group>
       ) : (
         <Billboard>
-          <Goober spec={spec} position={[0, lift, 0]} seed={seed} sizeScale={GOOBER_SIZE} />
+          <group position={[0, lift, 0]} rotation={[-FACE_PITCH, 0, 0]}>
+            <Goober spec={spec} position={[0, 0, 0]} seed={seed} sizeScale={GOOBER_SIZE} eyeBulge={EYE_BULGE} />
+          </group>
         </Billboard>
       )}
     </group>
