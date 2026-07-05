@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { creatureFromToken } from "game-kit/creature";
 import type { BattleState, BattleEvent, Combatant } from "game-kit/battle";
 import type { Element } from "game-kit/creature";
+import { BottomHud } from "game-kit/hud/r3f";
 import type { Dir } from "game-kit/world-runtime";
 import { GooberStage, type Placed } from "./GooberStage.js";
 import { SlashVFX, ElementBurstVFX } from "./battle-vfx.js";
@@ -473,21 +474,10 @@ function ZoneScreen({ game, setGame, onPause, paused }: ScreenProps & { onPause:
         <div className="walk-hint hint">
           ↑↓←→ / WASD to walk · reach a golden ring to travel onward
         </div>
-        <div className="dpad">
-          <button className="pad up" onClick={() => onStep("up")}>▲</button>
-          <button className="pad left" onClick={() => onStep("left")}>◀</button>
-          <button className="pad right" onClick={() => onStep("right")}>▶</button>
-          <button className="pad down" onClick={() => onStep("down")}>▼</button>
-        </div>
-        <div className="touch-actions">
-          <button
-            className="act"
-            title="Menu (Esc)"
-            onClick={() => { audio().playUi("select"); onPause(); }}
-          >
-            Menu
-          </button>
-        </div>
+        <BottomHud
+          dpad={{ onPress: onStep }}
+          menu={{ onPress: () => { audio().playUi("select"); onPause(); } }}
+        />
       </div>
     </>
   );
@@ -642,28 +632,18 @@ function TownScreen({ game, setGame, onPause, paused }: ScreenProps & { onPause:
             <div className="walk-hint hint">
               ↑↓←→ / WASD to walk · step onto a pad to travel · E at the Aldercradle, the house, or a villager
             </div>
-            <div className="dpad">
-              <button className="pad up" onClick={() => onStep("up")}>▲</button>
-              <button className="pad left" onClick={() => onStep("left")}>◀</button>
-              <button className="pad right" onClick={() => onStep("right")}>▶</button>
-              <button className="pad down" onClick={() => onStep("down")}>▼</button>
-            </div>
-            <div className="touch-actions">
-              <button
-                className="act bond"
-                disabled={!nearId && !nearHome && !nearTree}
-                onClick={tryTalk}
-              >
-                {nearTree ? "Aldercradle (E)" : nearHome ? "Enter Home (E)" : "Talk (E)"}
-              </button>
-              <button
-                className="act"
-                title="Menu (Esc)"
-                onClick={() => { audio().playUi("select"); onPause(); }}
-              >
-                Menu
-              </button>
-            </div>
+            <BottomHud
+              dpad={{ onPress: onStep }}
+              actions={[
+                {
+                  id: "talk",
+                  label: nearTree ? "Aldercradle (E)" : nearHome ? "Enter Home (E)" : "Talk (E)",
+                  disabled: !nearId && !nearHome && !nearTree,
+                  onPress: tryTalk,
+                },
+              ]}
+              menu={{ onPress: () => { audio().playUi("select"); onPause(); } }}
+            />
           </>
         )}
       </div>
