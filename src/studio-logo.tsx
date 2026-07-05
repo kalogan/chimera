@@ -26,14 +26,16 @@ import "./studio-logo.css";
 
 const BRAND = "WOVENWILD";
 // Total ident time. The CONTENT animations (threads/goober/eyes/wordmark) finish
-// at ~2.9s and hold (CSS `forwards`); the extra ~2s here is a deliberate LINGER
-// on the fully-formed, smiling goober before the wrap fades out (studio-logo.css's
-// `.studio-wrap` animation runs the same 4.9s and does the fade-out at the end).
-const DURATION_MS = 4900;
-/** Matches studio-logo.css's studioEye keyframe (eyes fade in over 60%-70% of the
- *  CONTENT timeline, ~1.74s-2.03s) — fire the delightful "smile" chime right as
- *  the face reads as alive. */
-const SMILE_CUE_MS = 1850;
+// at ~2.9s and hold (CSS `forwards`); the extra ~1s here is a brief LINGER on the
+// fully-formed, smiling goober before the wrap fades out (studio-logo.css's
+// `.studio-wrap` animation runs the same 3.9s and does the fade-out at the end).
+// Shortened from 4.9s so the fade begins ~1s earlier (Director note).
+const DURATION_MS = 3900;
+/** Fire the delightful "new life" chime once the goober is fully DRAWN and
+ *  smiling (~2.4s — just after the content animations settle, before the wrap
+ *  begins fading out at ~90% of DURATION). Timed to "the character is drawn",
+ *  per the Director. */
+const SMILE_CUE_MS = 2400;
 
 // Six thread strands sweeping in from the edges to the goober's center — drawn
 // on (stroke-dashoffset) then fading as the goober forms. Slight curves so they

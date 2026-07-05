@@ -6,7 +6,7 @@ import type { Dir } from "game-kit/world-runtime";
 import { GooberStage, type Placed } from "./GooberStage.js";
 import { SlashVFX, ElementBurstVFX } from "./battle-vfx.js";
 import { ZoneScene } from "./ZoneScene.js";
-import { specForToken } from "./goober-cache.js";
+import { specForSeed } from "./goober-cache.js";
 import { IntroScene } from "./intro.js";
 import { StudioLogo } from "./studio-logo.js";
 import { DexScreen } from "./dex.js";
@@ -389,10 +389,10 @@ const KEY_DIR: Record<string, Dir> = {
 function ZoneScreen({ game, setGame, onPause, paused }: ScreenProps & { onPause: () => void; paused: boolean }) {
   const zone = game.zone;
   const zoneId = zone?.descriptor.id ?? "meadowmere";
-  // Stable per-token spec (see goober-cache): a fresh spec object each step is
-  // what used to rebuild the player's metaball mesh on every walk step.
-  const lead = game.roster.party[0];
-  const playerSpec = lead ? specForToken(lead) : undefined;
+  // The player's overworld avatar is a STABLE "you" goober (specForSeed("player"),
+  // the same one the Town uses) — NOT the lead party monster, which changed the
+  // on-map goober every time the party reordered or you entered a new area.
+  const playerSpec = specForSeed("player");
   const busy = useRef(false); // locked while an encounter/portal transition plays
   const lastStep = useRef(0);
 

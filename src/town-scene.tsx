@@ -58,7 +58,7 @@ const CAM_UP = 18;
 const CAM_BACK = 14;
 const CAM_FOV = 40;
 const HOP_H = 0.42;
-const GOOBER_SIZE = 0.42;
+const GOOBER_SIZE = 0.34;
 // Tip the goober's face up toward the ~52° top-down camera so its front-facing
 // eyes clear the top dome (see ZoneScene's FACE_PITCH for the full rationale).
 const FACE_PITCH = 0.4;
@@ -290,7 +290,7 @@ function VillagerActor({
           <meshBasicMaterial color={tint} transparent opacity={0.3} depthWrite={false} />
         </mesh>
       </group>
-      <Villager role={role} tint={tint} position={[0, 0, 0]} scale={1} />
+      <Villager role={role} tint={tint} position={[0, 0, 0]} scale={1.9} />
       <TalkBubble tint={tint} />
     </group>
   );

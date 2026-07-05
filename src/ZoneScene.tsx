@@ -41,7 +41,7 @@ const CAM_BACK = 14;
 const CAM_FOV = 40;
 const HOP_H = 0.42;
 // Overworld goobers are tile-sized, much smaller than the battle-stage lineup.
-const GOOBER_SIZE = 0.42;
+const GOOBER_SIZE = 0.34;
 // The angled top-down camera (~52° above horizontal) looks down onto a goober's
 // top dome, so its front-facing (+Z, horizontal) eyes hide below the bulge. Tip
 // the whole goober's face UP toward the camera by this much (~28°) so the eyes
