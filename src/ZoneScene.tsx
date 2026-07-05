@@ -9,9 +9,9 @@
  * Tidewrack each read as a distinct place, not a recolored copy.
  */
 import { useMemo, useRef } from "react";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Canvas, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
-import { Billboard } from "game-kit/billboard/r3f";
+import { FollowCam, WalkActor } from "game-kit/walk-view/r3f";
 import { type GooberSpec } from "game-kit/creature";
 import type { ZoneState } from "game-kit/world-runtime";
 import { Goober, gooberGroundLift } from "./Goober.js";
@@ -52,6 +52,10 @@ const FACE_PITCH = 0.4;
 // Push overworld goober eyes forward+up so they protrude from the body and read
 // from the steep top-down camera (deep-set eyes otherwise hide under the dome).
 const EYE_BULGE = 0.5;
+// walk-view (the shared kit module) drives the follow-cam + tile-hop + facing.
+// These CHIMERA constants feed its config so the two stay coupled; the rest of
+// the tuning (lerps, look height, deadzone) matches the kit defaults.
+const WALK_CFG = { tile: TILE, camUp: CAM_UP, camBack: CAM_BACK, hopHeight: HOP_H };
 
 function worldOf(x: number, y: number, w: number, h: number): [number, number, number] {
   return [(x - (w - 1) / 2) * TILE, 0, (y - (h - 1) / 2) * TILE];
@@ -236,19 +240,14 @@ function RivalMarker({ color = "#e97b4f" }: { color?: string }) {
   );
 }
 
-/** A goober that tweens toward its tile with a little hop arc.
- *
- *  RENDERING: goobers are lifted `gooberGroundLift` above the tile so their
- *  low-packed body rests on the grass instead of sinking its lower half through
- *  the y=0 plane (the ContactBlob shadow stays on the ground).
- *
- *  FACING: wild roamers/rivals stay `<Billboard>`-ed (always meeting the
- *  camera's eye — reads friendly). The PLAYER passes `directional`, which drops
- *  the billboard and instead yaws the goober toward its last movement direction
- *  — so the character turns to face where it walks (down = toward camera = full
- *  face; up = its back; left/right = profile), and you plainly see its eyes when
- *  walking toward the camera. `atan2(dx, dz)` matches the kit's +Z-forward
- *  billboard convention, so the eyes (authored at +Z) lead the walk. */
+/** A goober placed on the walkable grid via the kit's <WalkActor> (which owns the
+ *  tween + tile-hop + facing). This wrapper owns the goober LOOK:
+ *   - lifted `gooberGroundLift` so the low-packed body rests above the grass
+ *     (the ContactBlob shadow, a WalkActor child, stays on the ground);
+ *   - `FACE_PITCH` + `eyeBulge` so the eyes read from the steep overworld camera.
+ *  The PLAYER passes `directional` (its front leads the walk — down = full face
+ *  toward camera, up = its back); wild roamers/rivals billboard (always meet the
+ *  camera's eye). */
 function Actor({
   spec,
   tx,
@@ -272,65 +271,23 @@ function Actor({
   /** When set, the goober faces its walk direction instead of billboarding (the player). */
   directional?: boolean;
 }) {
-  const grp = useRef<THREE.Group>(null);
-  const cur = useRef<THREE.Vector3>(
-    new THREE.Vector3(...worldOf(tx, ty, w, h)),
-  );
-  // Last heading (radians). Starts at 0 = facing +Z = toward the camera, so a
-  // freshly-spawned/standing player shows its face rather than its back.
-  const facing = useRef(0);
   const lift = useMemo(() => gooberGroundLift(spec, GOOBER_SIZE), [spec]);
-  useFrame(() => {
-    const [wx, , wz] = worldOf(tx, ty, w, h);
-    const dx = wx - cur.current.x;
-    const dz = wz - cur.current.z;
-    // Only re-aim while actually travelling (past a small deadzone), so facing
-    // holds steady once the step settles rather than snapping back to 0.
-    if (directional && dx * dx + dz * dz > 0.0004) {
-      facing.current = Math.atan2(dx, dz);
-    }
-    cur.current.x += dx * 0.25;
-    cur.current.z += dz * 0.25;
-    const dist = Math.hypot(wx - cur.current.x, wz - cur.current.z);
-    const p = 1 - Math.min(dist / TILE, 1); // 0 at step start → 1 on arrival
-    const hop = Math.sin(p * Math.PI) * HOP_H;
-    if (grp.current) {
-      grp.current.position.set(cur.current.x, hop, cur.current.z);
-      if (directional) grp.current.rotation.y = facing.current;
-    }
-    if (posOut) posOut.current.set(cur.current.x, 0, cur.current.z);
-  });
   return (
-    <group ref={grp}>
+    <WalkActor
+      tileX={tx}
+      tileY={ty}
+      width={w}
+      height={h}
+      config={WALK_CFG}
+      facing={directional ? "directional" : "billboard"}
+      posOut={posOut}
+    >
       {rival ? <RivalMarker /> : <ContactBlob position={[0, 0, 0]} radius={GOOBER_SIZE * 1.6} />}
-      {directional ? (
-        <group position={[0, lift, 0]} rotation={[-FACE_PITCH, 0, 0]}>
-          <Goober spec={spec} position={[0, 0, 0]} seed={seed} sizeScale={GOOBER_SIZE} eyeBulge={EYE_BULGE} />
-        </group>
-      ) : (
-        <Billboard>
-          <group position={[0, lift, 0]} rotation={[-FACE_PITCH, 0, 0]}>
-            <Goober spec={spec} position={[0, 0, 0]} seed={seed} sizeScale={GOOBER_SIZE} eyeBulge={EYE_BULGE} />
-          </group>
-        </Billboard>
-      )}
-    </group>
+      <group position={[0, lift, 0]} rotation={[-FACE_PITCH, 0, 0]}>
+        <Goober spec={spec} position={[0, 0, 0]} seed={seed} sizeScale={GOOBER_SIZE} eyeBulge={EYE_BULGE} />
+      </group>
+    </WalkActor>
   );
-}
-
-/** Smoothly track the player with the angled top-down camera. */
-function FollowCam({ target }: { target: React.MutableRefObject<THREE.Vector3> }) {
-  const cam = useThree((s) => s.camera);
-  const desired = useRef(new THREE.Vector3());
-  const look = useRef(new THREE.Vector3());
-  useFrame(() => {
-    const t = target.current;
-    desired.current.set(t.x, CAM_UP, t.z + CAM_BACK);
-    cam.position.lerp(desired.current, 0.12);
-    look.current.lerp(new THREE.Vector3(t.x, 1.1, t.z), 0.16);
-    cam.lookAt(look.current);
-  });
-  return null;
 }
 
 /** Static tile geometry: walls, the encounter-tile dressing, the portal pad, the ground. */
@@ -424,7 +381,7 @@ export function ZoneScene({
       <color attach="background" args={[theme.bg]} />
       <ResponsiveFov baseFov={CAM_FOV} maxFov={54} />
       <GooberEnv palette={theme.palette} />
-      <FollowCam target={playerPos} />
+      <FollowCam target={playerPos} config={WALK_CFG} />
       <Terrain zone={zone} theme={theme} />
       <Actor
         spec={playerSpec}

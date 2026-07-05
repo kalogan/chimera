@@ -16,9 +16,10 @@
  * Architect's screen/App layer does) and imports nothing from `game.ts`.
  */
 import { useEffect, useMemo, useRef } from "react";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Canvas, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { Billboard } from "game-kit/billboard/r3f";
+import { FollowCam, WalkActor } from "game-kit/walk-view/r3f";
 import { type GooberSpec } from "game-kit/creature";
 import { Goober, gooberGroundLift } from "./Goober.js";
 import { specForSeed } from "./goober-cache.js";
@@ -63,6 +64,9 @@ const GOOBER_SIZE = 0.34;
 // eyes clear the top dome (see ZoneScene's FACE_PITCH for the full rationale).
 const FACE_PITCH = 0.4;
 const EYE_BULGE = 0.5;
+// Feeds the shared kit walk-view (follow-cam + tile-hop + facing); the rest of
+// its tuning matches the kit defaults. Mirrors ZoneScene's WALK_CFG.
+const WALK_CFG = { tile: TILE, camUp: CAM_UP, camBack: CAM_BACK, hopHeight: HOP_H };
 /** A player standing on this tile, or one cardinal step away, can talk to a
  *  villager occupying that tile (adjacency, not exact overlap). */
 const APPROACH_RADIUS = 1;
@@ -163,30 +167,17 @@ function Actor({
   /** When set, the goober faces its walk direction instead of billboarding (the player). */
   directional?: boolean;
 }) {
-  const grp = useRef<THREE.Group>(null);
-  const cur = useRef<THREE.Vector3>(new THREE.Vector3(...worldOf(tx, ty, w, h)));
-  const facing = useRef(0); // 0 = facing +Z = toward camera (see ZoneScene Actor)
   const lift = useMemo(() => gooberGroundLift(spec, GOOBER_SIZE), [spec]);
-  useFrame(() => {
-    const [wx, , wz] = worldOf(tx, ty, w, h);
-    const dx = wx - cur.current.x;
-    const dz = wz - cur.current.z;
-    if (directional && dx * dx + dz * dz > 0.0004) {
-      facing.current = Math.atan2(dx, dz);
-    }
-    cur.current.x += dx * 0.25;
-    cur.current.z += dz * 0.25;
-    const dist = Math.hypot(wx - cur.current.x, wz - cur.current.z);
-    const p = 1 - Math.min(dist / TILE, 1);
-    const hop = Math.sin(p * Math.PI) * HOP_H;
-    if (grp.current) {
-      grp.current.position.set(cur.current.x, hop, cur.current.z);
-      if (directional) grp.current.rotation.y = facing.current;
-    }
-    if (posOut) posOut.current.set(cur.current.x, 0, cur.current.z);
-  });
   return (
-    <group ref={grp}>
+    <WalkActor
+      tileX={tx}
+      tileY={ty}
+      width={w}
+      height={h}
+      config={WALK_CFG}
+      facing={directional ? "directional" : "billboard"}
+      posOut={posOut}
+    >
       {tint ? (
         <group position={[0, 0.03, 0]}>
           <mesh rotation={[-Math.PI / 2, 0, 0]}>
@@ -197,18 +188,10 @@ function Actor({
       ) : (
         <ContactBlob position={[0, 0, 0]} radius={GOOBER_SIZE * 1.6} />
       )}
-      {directional ? (
-        <group position={[0, lift, 0]} rotation={[-FACE_PITCH, 0, 0]}>
-          <Goober spec={spec} position={[0, 0, 0]} seed={seed} sizeScale={GOOBER_SIZE} eyeBulge={EYE_BULGE} />
-        </group>
-      ) : (
-        <Billboard>
-          <group position={[0, lift, 0]} rotation={[-FACE_PITCH, 0, 0]}>
-            <Goober spec={spec} position={[0, 0, 0]} seed={seed} sizeScale={GOOBER_SIZE} eyeBulge={EYE_BULGE} />
-          </group>
-        </Billboard>
-      )}
-    </group>
+      <group position={[0, lift, 0]} rotation={[-FACE_PITCH, 0, 0]}>
+        <Goober spec={spec} position={[0, 0, 0]} seed={seed} sizeScale={GOOBER_SIZE} eyeBulge={EYE_BULGE} />
+      </group>
+    </WalkActor>
   );
 }
 
@@ -296,20 +279,6 @@ function VillagerActor({
   );
 }
 
-/** Smoothly track the player with the angled top-down camera. */
-function FollowCam({ target }: { target: React.MutableRefObject<THREE.Vector3> }) {
-  const cam = useThree((s) => s.camera);
-  const desired = useRef(new THREE.Vector3());
-  const look = useRef(new THREE.Vector3());
-  useFrame(() => {
-    const t = target.current;
-    desired.current.set(t.x, CAM_UP, t.z + CAM_BACK);
-    cam.position.lerp(desired.current, 0.12);
-    look.current.lerp(new THREE.Vector3(t.x, 1.1, t.z), 0.16);
-    cam.lookAt(look.current);
-  });
-  return null;
-}
 
 /**
  * Static plaza dressing: the textured ground, low warm edge-walls, a paved
@@ -495,7 +464,7 @@ export function TownScene({
         <color attach="background" args={[TOWN_BG]} />
         <ResponsiveFov baseFov={CAM_FOV} maxFov={54} />
         <GooberEnv palette={ZONE_PALETTE} />
-        <FollowCam target={playerPos} />
+        <FollowCam target={playerPos} config={WALK_CFG} />
         <TownTerrain />
         <AldercradleTreeProp
           position={worldOf(TOWN_TREE_TILE[0], TOWN_TREE_TILE[1], w, h)}
